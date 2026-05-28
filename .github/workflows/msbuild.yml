@@ -1,36 +1,58 @@
 name: MSBuild
-
-on: [push, pull_request]
-
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
 jobs:
-  msbuild:
+  Build:
+    name: Build (${{ matrix.Configuration }})
     runs-on: windows-latest
-
+    permissions:
+      contents: write
     strategy:
+      fail-fast: false
       matrix:
-        configuration: [Release, ReleaseAVX2, ReleaseFreetype, ReleaseFreetypeAVX2, ReleaseTextmode, ReleaseTextmodeAVX2]
-        platform: [x64]
-
+        Configuration:
+          - ReleaseAVX2
+    env:
+      _CL_: >-
+        /Ox /Ob3 /Oy /GS- /GT /Zo- /GL /fp:precise /volatile:iso
+        /Gw /Zc:inline /Zc:threadSafeInit- /Zc:throwingNew
+        /guard:cf- /d2FH4- /EHsc
+      _LINK_: >-
+        /LTCG /OPT:REF /OPT:ICF=67 /INCREMENTAL:NO /RELEASE /CGTHREADS:8
+        /MERGE:.rdata=.text /MERGE:.pdata=.text /FILEALIGN:512
+        /DYNAMICBASE:NO /FIXED:NO /NXCOMPAT:NO
     steps:
-    - uses: actions/checkout@v4
-
-    - name: Add MSBuild to PATH
-      uses: microsoft/setup-msbuild@v2
-
-    - name: Restore NuGet packages
-      working-directory: ${{ env.GITHUB_WORKSPACE }}
-      run: nuget restore
-
-    - name: Build
-      working-directory: ${{ env.GITHUB_WORKSPACE }}
-      run: msbuild Amalgam.sln /p:Platform=${{ matrix.platform }} /p:Configuration=${{ matrix.configuration }}
-    
-    - uses: actions/upload-artifact@v4
-      with:
-        name: Amalgam${{ matrix.platform }}${{ matrix.configuration }}
-        path: output/${{ matrix.platform }}/${{ matrix.configuration }}/*.dll
-    
-    - uses: actions/upload-artifact@v4
-      with:
-        name: Amalgam${{ matrix.platform }}${{ matrix.configuration }}PDB
-        path: output/${{ matrix.platform }}/${{ matrix.configuration }}/*.pdb
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build
+        env:
+          Config: ${{ matrix.Configuration }}
+        run: |
+          $MsBuild = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+            -latest -requires Microsoft.Component.MSBuild `
+            -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+          nuget restore Amalgam.sln
+          & $MsBuild Amalgam.sln `
+            /p:Platform=x64 `
+            /p:Configuration=$env:Config `
+            /p:UseMultiToolTask=true `
+            /p:EnforceProcessCountAcrossBuilds=true `
+            /p:CL_MPCount=8 `
+            /m /maxCpuCount /nodeReuse:true /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.Configuration }}
+          path: output/x64/${{ matrix.Configuration }}/*.dll
+          if-no-files-found: error
+      - name: Upload PDB
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.Configuration }}PDB
+          path: output/x64/${{ matrix.Configuration }}/*.pdb
+          if-no-files-found: error

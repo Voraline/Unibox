@@ -219,7 +219,7 @@ void CAutoRocketJump::Run(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, CUserCmd* p
 			if (m_iFrame != -1)
 			{
 				m_bFull = Vars::Misc::Movement::AutoRocketJump.Value;
-				m_iChoke = bCurrGrounded ? Vars::Misc::Movement::AutoRocketJumpChokeGrounded.Value : Vars::Misc::Movement::AutoRocketJumpChokeAir.Value;
+				m_iChoke = std::min(bCurrGrounded ? Vars::Misc::Movement::AutoRocketJumpChokeGrounded.Value : Vars::Misc::Movement::AutoRocketJumpChokeAir.Value, 1);
 
 				if (G::Reloading)
 				{

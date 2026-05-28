@@ -36,28 +36,20 @@ bool CAutoRocketJump::SetAngles(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, CUser
 	}
 	else
 	{
+		//float flOffset = pLocal->m_vecMaxs().x;
 		float flOffset = sqrtf(2 * powf(vOffset.y, 2.f) + powf(vOffset.z, 2.f));
 		bool bShouldReturn = true;
-		bool bLanding = false;
 		MoveStorage tMoveStorage;
 		if (F::MoveSim.Initialize(pLocal, tMoveStorage, false))
 		{
-			for (int n = 1; n < 10; n++)
+			for (int n = 1; n < 20; n++)
 			{
 				F::MoveSim.RunTick(tMoveStorage);
 				if (!pLocal->IsOnGround() || pLocal->IsSwimming())
 					continue;
 
-				if (pLocal->m_vecVelocity().z < -100.f && n <= 3)
-				{
-					vPoint = tMoveStorage.m_MoveData.m_vecAbsOrigin - Vec3(0, 0, flOffset);
-					bLanding = true;
-				}
-				else
-				{
-					Vec3 vForward = tMoveStorage.m_MoveData.m_vecVelocity.Normalized2D();
-					vPoint = tMoveStorage.m_MoveData.m_vecAbsOrigin - vForward * flOffset;
-				}
+				Vec3 vForward = tMoveStorage.m_MoveData.m_vecVelocity.Normalized2D();
+				vPoint = tMoveStorage.m_MoveData.m_vecAbsOrigin - vForward * flOffset + Vec3(0, 0, pLocal->m_vecMins().z * 0.5f);
 				bShouldReturn = false;
 				break;
 			}

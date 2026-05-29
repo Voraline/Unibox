@@ -32,7 +32,7 @@ bool CAutoRocketJump::SetAngles(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, CUser
 			vDir = { 0.f, m_vAngles.y - vWishAng.y, 0.f };
 		}
 		Vec3 vForward; Math::AngleVectors(vDir, &vForward);
-		vPoint = pLocal->m_vecOrigin() - vForward * flOffset;
+		vPoint = pLocal->m_vecOrigin() - vForward * flOffset + Vec3(0, 0, pLocal->m_vecMins().z);
 	}
 	else
 	{

@@ -22,7 +22,8 @@ bool CAutoRocketJump::SetAngles(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, CUser
 	Vec3 vPoint;
 	if (pLocal->IsOnGround())
 	{
-		float flOffset = sqrtf(2 * powf(vOffset.y, 2.f) + powf(vOffset.z, 2.f));
+		float flBodyCenterZ = (pLocal->m_vecMaxs().z + pLocal->m_vecMins().z) * 0.5f - pLocal->m_vecMins().z;
+		float flOffset = flBodyCenterZ;
 		Vec3 vWishVel = { pCmd->forwardmove, pCmd->sidemove, 0.f }, vDir;
 		if (vWishVel.IsZero())
 			vDir = { 0.f, m_vAngles.y, 0.f };

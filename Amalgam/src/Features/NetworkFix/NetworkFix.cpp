@@ -6,6 +6,8 @@ void CReadPacketState::Store()
 	m_flFrameTime = I::GlobalVars->frametime;
 	m_flCurTime = I::GlobalVars->curtime;
 	m_nTickCount = I::GlobalVars->tickcount;
+	m_nServerTick = I::ClientState->m_nServerTick;
+	m_nDeltaTick = I::ClientState->m_nDeltaTick;
 }
 
 void CReadPacketState::Restore()
@@ -14,6 +16,8 @@ void CReadPacketState::Restore()
 	I::GlobalVars->frametime = m_flFrameTime;
 	I::GlobalVars->curtime = m_flCurTime;
 	I::GlobalVars->tickcount = m_nTickCount;
+	I::ClientState->m_nServerTick = m_nServerTick;
+	I::ClientState->m_nDeltaTick = m_nDeltaTick;
 }
 
 void CNetworkFix::FixInputDelay(bool bFinalTick)

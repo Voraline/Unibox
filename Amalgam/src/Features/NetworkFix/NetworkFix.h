@@ -8,6 +8,8 @@ private:
     float m_flFrameTime = 0.f;
     float m_flCurTime = 0.f;
     int m_nTickCount = 0;
+    int m_nServerTick = 0;
+    int m_nDeltaTick = 0;
 
 public:
     void Store();

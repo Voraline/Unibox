@@ -275,7 +275,8 @@ void CTicks::MoveFunc(float accumulated_extra_samples, bool bFinalTick)
 		float host_frametime_unbounded = *reinterpret_cast<float*>(U::Memory.RelToAbs(S::host_frametime_unbounded(), 4));
 		float host_frametime_stddeviation = *reinterpret_cast<float*>(U::Memory.RelToAbs(S::host_frametime_stddeviation(), 4));
 
-		NET_Tick tickMsg(I::ClientState->m_nDeltaTick, host_frametime_unbounded, host_frametime_stddeviation);
+		const int nTickToSend = I::ClientState->m_nDeltaTick >= 0 ? I::ClientState->m_ClockDriftMgr.m_nServerTick : I::ClientState->m_nDeltaTick;
+		NET_Tick tickMsg(nTickToSend, host_frametime_unbounded, host_frametime_stddeviation);
 		I::ClientState->m_NetChannel->SendNetMsg(tickMsg);
 	}
 

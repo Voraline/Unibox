@@ -12,6 +12,9 @@ MAKE_HOOK(CBaseAnimating_SetupBones, S::CBaseAnimating_SetupBones(), bool,
 	if (!G::Unload && !Vars::Misc::Game::SetupBonesOptimization.Value || F::Backtrack.IsSettingUpBones())
 		return CALL_ORIGINAL(rcx, pBoneToWorldOut, nMaxBones, boneMask, currentTime);
 
+	if (boneMask & BONE_USED_BY_VERTEX_MASK)
+		return CALL_ORIGINAL(rcx, pBoneToWorldOut, nMaxBones, boneMask, currentTime);
+
 	auto pAnimating = reinterpret_cast<CBaseEntity*>(uintptr_t(rcx) - 8);
 	if (!pAnimating)
 		return CALL_ORIGINAL(rcx, pBoneToWorldOut, nMaxBones, boneMask, currentTime);

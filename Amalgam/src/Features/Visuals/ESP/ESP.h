@@ -4,10 +4,17 @@
 struct Text_t
 {
 	int m_iMode = ALIGN_TOP;
-	std::string m_sText = "";
+	char m_sText[64] = {};
 	Color_t m_tColor = {};
 	Color_t m_tOutline = {};
 	byte m_ucBackgroundAlpha = -1;
+
+	Text_t() = default;
+	Text_t(int iMode, const char* sText, Color_t tColor, Color_t tOutline, byte ucBg = 0)
+		: m_iMode(iMode), m_tColor(tColor), m_tOutline(tOutline), m_ucBackgroundAlpha(ucBg)
+	{
+		strncpy_s(m_sText, sText, _TRUNCATE);
+	}
 };
 
 struct Bar_t
@@ -68,18 +75,22 @@ private:
 	void DrawPlayers();
 	void DrawBuildings();
 	void DrawWorld();
-	
-	bool GetDrawBounds(CBaseEntity* pEntity, float& x, float& y, float& w, float& h);
 
-	void DrawBones(CTFPlayer* pPlayer, matrix3x4* aBones, std::vector<int> vBones, Color_t tColor);
+	bool GetDrawBounds(CBaseEntity* pEntity, float& x, float& y, float& w, float& h);
+	bool FrustumCull(const Vec3& vOrigin, const Vec3& vViewOrigin) const;
+
+	void DrawBones(CTFPlayer* pPlayer, matrix3x4* aBones, std::initializer_list<int> vBones, Color_t tColor);
 	float SmoothBarValue(const BarKey& tKey, float flTarget);
 	void CleanupSmoothedBars();
 
-	std::unordered_map<CBaseEntity*, PlayerCache_t> m_mPlayerCache = {};
-	std::unordered_map<CBaseEntity*, BuildingCache_t> m_mBuildingCache = {};
-	std::unordered_map<CBaseEntity*, EntityCache_t> m_mEntityCache = {};
-	std::unordered_map<BarKey, float, BarKeyHasher> m_mBarSmoothing = {};
+	std::vector<std::pair<CBaseEntity*, PlayerCache_t>> m_vPlayerCache = {};
+	std::vector<std::pair<CBaseEntity*, BuildingCache_t>> m_vBuildingCache = {};
+	std::vector<std::pair<CBaseEntity*, EntityCache_t>> m_vEntityCache = {};
+	std::vector<std::pair<BarKey, float>> m_vBarSmoothing = {};
 	std::unordered_set<BarKey, BarKeyHasher> m_sBarsSeenThisFrame = {};
+
+	Vec3 m_vViewForward = {};
+	Vec3 m_vViewOrigin = {};
 
 public:
 	void Store(CTFPlayer* pLocal);

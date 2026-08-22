@@ -505,7 +505,7 @@ static inline void StoreBuilding(CBaseObject* pBuilding, CTFPlayer* pLocal, Grou
 		case ETFClassID::CObjectDispenser: sName = "Dispenser"; break;
 		case ETFClassID::CObjectTeleporter: sName = pBuilding->m_iObjectMode() ? "Teleporter Exit" : "Teleporter Entrance";
 		}
-		tCache.m_vText.emplace_back(ALIGN_TOP, sName.c_str(), Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, (pGroup->m_tESP.Draw & ESPEnum::NameBackground) ? pGroup->m_tESP.BackgroundOpacity : 0);
+		tCache.m_vText.emplace_back(ALIGN_TOP, sName, Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, (pGroup->m_tESP.Draw & ESPEnum::NameBackground) ? pGroup->m_tESP.BackgroundOpacity : 0);
 	}
 
 	float flHealth = pBuilding->m_iHealth(), flMaxHealth = pBuilding->m_iMaxHealth();
@@ -843,7 +843,7 @@ static inline void StoreMisc(CBaseEntity* pEntity, CTFPlayer* pLocal, Group_t* p
 		case ETFClassID::CHalloweenGiftPickup: sName = "Gargoyle"; break;
 		}
 
-		tCache.m_vText.emplace_back(ALIGN_TOP, sName.c_str(), pGroup->m_tColor, Vars::Menu::Theme::Background.Value, (pGroup->m_tESP.Draw & ESPEnum::NameBackground) ? pGroup->m_tESP.BackgroundOpacity : 0);
+		tCache.m_vText.emplace_back(ALIGN_TOP, sName, pGroup->m_tColor, Vars::Menu::Theme::Background.Value, (pGroup->m_tESP.Draw & ESPEnum::NameBackground) ? pGroup->m_tESP.BackgroundOpacity : 0);
 	}
 }
 

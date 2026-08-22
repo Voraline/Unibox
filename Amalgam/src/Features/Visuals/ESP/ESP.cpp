@@ -64,7 +64,7 @@ static inline void StorePlayer(CTFPlayer* pPlayer, CTFPlayer* pLocal, Group_t* p
 	if (pResource)
 	{
 		if (pGroup->m_tESP.Draw & ESPEnum::Name)
-			tCache.m_vText.emplace_back(ALIGN_TOP, F::PlayerUtils.GetPlayerName(iIndex, pResource->GetName(iIndex)).c_str(), Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, (pGroup->m_tESP.Draw & ESPEnum::NameBackground) ? pGroup->m_tESP.BackgroundOpacity : 0);
+			tCache.m_vText.emplace_back(ALIGN_TOP, F::PlayerUtils.GetPlayerName(iIndex, pResource->GetName(iIndex)), Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, (pGroup->m_tESP.Draw & ESPEnum::NameBackground) ? pGroup->m_tESP.BackgroundOpacity : 0);
 
 		if (pGroup->m_tESP.Draw & (ESPEnum::Labels | ESPEnum::Priority) && !pResource->IsFakePlayer(iIndex))
 		{
@@ -557,7 +557,7 @@ static inline void StoreBuilding(CBaseObject* pBuilding, CTFPlayer* pLocal, Grou
 	if (pGroup->m_tESP.Draw & ESPEnum::Owner && !pBuilding->m_bWasMapPlaced() && pOwner)
 	{
 		if (auto pResource = H::Entities.GetResource(); pResource)
-			tCache.m_vText.emplace_back(ALIGN_TOP, F::PlayerUtils.GetPlayerName(iIndex, pResource->GetName(iIndex)).c_str(), Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value);
+			tCache.m_vText.emplace_back(ALIGN_TOP, F::PlayerUtils.GetPlayerName(iIndex, pResource->GetName(iIndex)), Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value);
 	}
 
 	if (pGroup->m_tESP.Draw & ESPEnum::Level && !bIsMini)
@@ -640,12 +640,12 @@ static inline void StoreProjectile(CBaseEntity* pProjectile, CTFPlayer* pLocal, 
 	}
 
 	if (pGroup->m_tESP.Draw & ESPEnum::Name)
-		tCache.m_vText.emplace_back(ALIGN_TOP, GetProjectileName(pProjectile).c_str(), Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, (pGroup->m_tESP.Draw & ESPEnum::NameBackground) ? pGroup->m_tESP.BackgroundOpacity : 0);
+		tCache.m_vText.emplace_back(ALIGN_TOP, GetProjectileName(pProjectile), Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value, (pGroup->m_tESP.Draw & ESPEnum::NameBackground) ? pGroup->m_tESP.BackgroundOpacity : 0);
 
 	if (pGroup->m_tESP.Draw & ESPEnum::Owner && pOwner)
 	{
 		if (auto pResource = H::Entities.GetResource(); pResource)
-			tCache.m_vText.emplace_back(ALIGN_TOP, F::PlayerUtils.GetPlayerName(iIndex, pResource->GetName(iIndex)).c_str(), Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value);
+			tCache.m_vText.emplace_back(ALIGN_TOP, F::PlayerUtils.GetPlayerName(iIndex, pResource->GetName(iIndex)), Vars::Menu::Theme::Active.Value, Vars::Menu::Theme::Background.Value);
 	}
 
 	if (pGroup->m_tESP.Draw & ESPEnum::Flags)

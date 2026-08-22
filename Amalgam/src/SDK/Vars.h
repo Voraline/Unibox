@@ -254,6 +254,9 @@ NAMESPACE_BEGIN(Vars)
 		CVar(ShotPathIgnoreZ, "Shot path ignore Z color", Color_t(255, 255, 255, 255), VISUAL);
 		CVar(SplashRadius, "Splash radius color", Color_t(255, 255, 255, 0), VISUAL);
 		CVar(SplashRadiusIgnoreZ, "Splash radius ignore Z color", Color_t(255, 255, 255, 255), VISUAL);
+		CVar(BestPath, "Best path color", Color_t(255, 255, 255, 0), VISUAL);
+		CVar(BestPathIgnoreZ, "Best path ignore Z color", Color_t(255, 255, 255, 255), VISUAL);
+		CVar(AimPosColor, "Aim pos color", Color_t(255, 255, 255, 255), VISUAL);
 		CVar(RealPath, "Real path color", Color_t(255, 255, 255, 0), NOSAVE | DEBUGVAR);
 		CVar(RealPathIgnoreZ, "Real path ignore Z color", Color_t(255, 255, 255, 255), NOSAVE | DEBUGVAR);
 
@@ -706,6 +709,9 @@ NAMESPACE_BEGIN(Vars)
 			CVarValues(ProjectilePath, "Projectile path", 0, VISUAL, nullptr,
 				"Off", "Line", "Separators", "Spaced", "Arrows", "Boxes");
 			CVar(SwingLines, "Swing lines", false, VISUAL);
+			CVarValues(BestPath, "Best path", 0, VISUAL, nullptr,
+				"Off", "Line", "Separators", "Spaced", "Arrows", "Boxes");
+			CVar(BestAimPos, "Draw best aim pos", false, VISUAL);
 			CVar(PlayerDrawDuration, VA_LIST("Draw duration", "Player path draw duration"), 5.f, VISUAL | SLIDER_MIN | SLIDER_PRECISION, 0.f, 10.f);
 			CVar(ProjectileDrawDuration, VA_LIST("Draw duration", "Projectile path draw duration"), 5.f, VISUAL | SLIDER_MIN | SLIDER_PRECISION, 0.f, 10.f);
 
@@ -862,8 +868,8 @@ I dont think this is a good idea to disable simulations completely:
 				CVar(RechargeDTDelay, "Recharge DT delay", 5, SLIDER_MIN, 0, 10, 1, "%is");
 
 				CVarEnum(Preferences, "Preferences", 0b100001111110111, DROPDOWN_MULTI, nullptr,
-					VA_LIST("Get health", "Get ammo", "Reload weapons", "Stalk enemies", "Defend objectives", "Capture objectives", "Help capture objectives", "Escape danger", "Safe capping", "Target sentries", "Auto engie", "##Divider", "Target sentries low range", "Help capture objective friend only", "Dont escape danger with intel", "Group with others"),
-					SearchHealth = 1 << 0, SearchAmmo = 1 << 1, ReloadWeapons = 1 << 2, StalkEnemies = 1 << 3, DefendObjectives = 1 << 4, CaptureObjectives = 1 << 5, HelpCaptureObjectives = 1 << 6, EscapeDanger = 1 << 7, SafeCapping = 1 << 8, TargetSentries = 1 << 9, AutoEngie = 1 << 10, TargetSentriesLowRange = 1 << 11, HelpFriendlyCaptureObjectives = 1 << 12, DontEscapeDangerIntel = 1 << 13, GroupWithOthers = 1 << 14);
+					VA_LIST("Get health", "Get ammo", "Reload weapons", "Stalk enemies", "Defend objectives", "Capture objectives", "Help capture objectives", "Escape danger", "Safe capping", "Target sentries", "Auto engie", "##Divider", "Target sentries low range", "Help capture objective friend only", "Dont escape danger with intel", "Group with others", "MvM Sniper (overrides other jobs)"),
+					SearchHealth = 1 << 0, SearchAmmo = 1 << 1, ReloadWeapons = 1 << 2, StalkEnemies = 1 << 3, DefendObjectives = 1 << 4, CaptureObjectives = 1 << 5, HelpCaptureObjectives = 1 << 6, EscapeDanger = 1 << 7, SafeCapping = 1 << 8, TargetSentries = 1 << 9, AutoEngie = 1 << 10, TargetSentriesLowRange = 1 << 11, HelpFriendlyCaptureObjectives = 1 << 12, DontEscapeDangerIntel = 1 << 13, GroupWithOthers = 1 << 14, MVMSniper = 1 << 15);
 				CVar(MeleeTargetRange, "Melee target range", 600, NONE, 150, 4000, 50);
 				CVar(DangerOverlay, "Danger overlay", false);
 				CVar(DangerOverlayMaxDist, "Danger overlay max distance", 2000.f, SLIDER_MIN, 500.f, 6000.f, 250.f, "%0.0f");
@@ -1198,9 +1204,9 @@ I dont think this is a good idea to disable simulations completely:
 		NAMESPACE_END(Game)
 
 		NAMESPACE_BEGIN(TelemetryBlocker)
-			CVarEnum(Mode, "Telemetry blocker mode", 2, NONE, nullptr,
-				VA_LIST("Lite", "Balanced", "Aggressive"),
-				Lite = 0, Balanced = 1, Aggressive = 2);
+			CVarEnum(Mode, "Telemetry blocker mode", 0, NONE, nullptr,
+				VA_LIST("Off", "Lite", "Balanced", "Aggressive"),
+				Off = 0, Lite = 1, Balanced = 2, Aggressive = 3);
 		NAMESPACE_END(TelemetryBlocker)
 
 		NAMESPACE_BEGIN(Queueing)
@@ -1272,6 +1278,13 @@ I dont think this is a good idea to disable simulations completely:
 			CVar(MaxCash, "Turn off buybot at cash", 15000, SLIDER_CLAMP | SLIDER_MIN, 0, 100000, 1000, "%i");
 			CVar(BuyBotAutoClass, "Buy Bot auto class", false);
 			CVar(BuyBotClass, "Buy Bot class", 6);
+
+			NAMESPACE_BEGIN(ChatCommands, Chat commands)
+				CVarEnum(Mode, "Allowed users", 0, NONE, nullptr,
+					VA_LIST("Off", "Party", "Friends", "Custom tag"),
+					Off, Party, Friends, CustomTag);
+				CVar(Tag, "Allowed tag", -1);
+			NAMESPACE_END(ChatCommands)
 		NAMESPACE_END(MannVsMachine)
 
 		NAMESPACE_BEGIN(Sound)

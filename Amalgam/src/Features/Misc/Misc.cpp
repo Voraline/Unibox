@@ -11,6 +11,7 @@
 #include "../AntiCheatCompatibility/AntiCheatCompatibility.h"
 #include "../EnginePrediction/EnginePrediction.h"
 #include "../NavBot/NavEngine/NavEngine.h"
+#include "../NavBot/NavBotJobs/NavBotJobs.h"
 #ifdef TEXTMODE
 #include "NamedPipe/NamedPipe.h"
 #endif
@@ -1018,6 +1019,7 @@ void CMisc::Event(IGameEvent* pEvent, uint32_t uHash)
 		m_iCurrentChatSpamIndex = 0;
 		m_bAutoBalanceTeamChangePending = false;
 		ResetBuyBot();
+		F::NavBotMVMSniper.Reset();
 
 		m_bEdgeBug = m_bEdgeBugCrouch = false;
 		m_iEdgeBugMoveStage = EBStageEnum::Normal;
@@ -1851,6 +1853,17 @@ bool CMisc::BuyBotWalkAwayFromStation(CTFPlayer* pLocal, CUserCmd* pCmd, const V
 	return true;
 }
 
+static bool HasVaccinator(CTFPlayer* pLocal)
+{
+	for (int i = 0; i < MAX_WEAPONS; i++)
+	{
+		const auto pWeapon = pLocal->GetWeaponFromSlot(i);
+		if (pWeapon && pWeapon->m_iItemDefinitionIndex() == Medic_s_TheVaccinator)
+			return true;
+	}
+	return false;
+}
+
 void CMisc::ExecBuyBot(CTFPlayer* pLocal, CUserCmd* pCmd)
 {
 	if (!Vars::Misc::MannVsMachine::BuyBot.Value)
@@ -1870,8 +1883,19 @@ void CMisc::ExecBuyBot(CTFPlayer* pLocal, CUserCmd* pCmd)
 		return;
 	}
 
+	if ((pLocal->m_iClass() == TF_CLASS_MEDIC || pLocal->m_bInUpgradeZone()) && !HasVaccinator(pLocal))
+		m_bBuybotCashLimitReached = true;
+
 	if (Vars::Misc::MannVsMachine::MaxCash.Value > 0 && pLocal->m_nCurrency() >= Vars::Misc::MannVsMachine::MaxCash.Value)
 		m_bBuybotCashLimitReached = true;
+
+	if (!m_bBuybotFinishedUpgrades && !pLocal->m_bInUpgradeZone())
+	{
+		if (!m_flBuybotStallClock)
+			m_flBuybotStallClock = I::GlobalVars->curtime;
+	}
+	else
+		m_flBuybotStallClock = 0.f;
 
 	const Vec3 vLocalOrigin = pLocal->GetAbsOrigin();
 	bool bFoundStation = false;
@@ -2139,6 +2163,39 @@ void CMisc::ResetBuyBot()
 	m_bBuybotCashLimitReached = false;
 	m_bBuybotFinishedUpgrades = false;
 	m_vBuybotStationTarget = {};
+	m_flBuybotStallClock = 0.f;
+}
+
+void CMisc::MvMFix()
+{
+	auto pGameRules = I::TFGameRules();
+	if (!pGameRules || !pGameRules->m_bPlayingMannVsMachine())
+	{
+		SDK::Output("cat_mvm_fix", "Not in Mann vs. Machine");
+		return;
+	}
+
+	Vars::Misc::MannVsMachine::BuyBot.Value = true;
+	m_bBuybotCashLimitReached = true;
+	m_bBuybotFinishedUpgrades = false;
+	m_vBuybotStationTarget = {};
+	m_bBuybotUsingNav = false;
+	m_flBuybotStationPathStart = 0.f;
+	m_flBuybotStallClock = 0.f;
+
+	SDK::Output("cat_mvm_fix", "Buybot marked as funded, reconnecting");
+	I::EngineClient->ClientCmd_Unrestricted("retry");
+}
+
+bool CMisc::IsBuyBotBusy() const
+{
+	if (!Vars::Misc::MannVsMachine::BuyBot.Value || m_bBuybotFinishedUpgrades)
+		return false;
+
+	if (m_flBuybotStallClock && I::GlobalVars->curtime - m_flBuybotStallClock > 45.f)
+		return false;
+
+	return true;
 }
 
 void CMisc::OnBuyBotClassChangeBlocked()

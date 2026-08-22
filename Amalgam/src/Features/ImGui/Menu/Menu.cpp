@@ -464,10 +464,10 @@ void CMenu::MenuAimbot(int iTab)
 					Divider();
 					PushDisabled(F::AntiCheatCompatibility.Active());
 					{
-					FToggle(Vars::CritHack::ForceCrits, FToggleEnum::Left);
-					FToggle(Vars::CritHack::AvoidRandomCrits, FToggleEnum::Right);
-					FToggle(Vars::CritHack::AlwaysMeleeCrit, FToggleEnum::Left);
-					FToggle(Vars::CritHack::CritEffects, FToggleEnum::Right);
+						FToggle(Vars::CritHack::ForceCrits, FToggleEnum::Left);
+						FToggle(Vars::CritHack::AvoidRandomCrits, FToggleEnum::Right);
+						FToggle(Vars::CritHack::AlwaysMeleeCrit, FToggleEnum::Left);
+						FToggle(Vars::CritHack::CritEffects, FToggleEnum::Right);
 					}
 					PopDisabled();
 
@@ -477,7 +477,7 @@ void CMenu::MenuAimbot(int iTab)
 					FToggle(Vars::Aimbot::General::LeadAndRestrict, FToggleEnum::Left);
 					PushDisabled(F::AntiCheatCompatibility.Active());
 					{
-					FToggle(Vars::Aimbot::General::NoSpread);
+						FToggle(Vars::Aimbot::General::NoSpread);
 					}
 					PopDisabled();
 				} EndSection();
@@ -502,10 +502,10 @@ void CMenu::MenuAimbot(int iTab)
 				{
 					PushDisabled(F::AntiCheatCompatibility.Active());
 					{
-					FSlider(Vars::Backtrack::Latency, FSliderEnum::Left);
-					FSlider(Vars::Backtrack::Interp, FSliderEnum::Right);
-					FSlider(Vars::Backtrack::Window);
-					//FToggle(Vars::Backtrack::PreferOnShot, FToggleEnum::Right);
+						FSlider(Vars::Backtrack::Latency, FSliderEnum::Left);
+						FSlider(Vars::Backtrack::Interp, FSliderEnum::Right);
+						FSlider(Vars::Backtrack::Window);
+						//FToggle(Vars::Backtrack::PreferOnShot, FToggleEnum::Right);
 					}
 					PopDisabled();
 				} EndSection();
@@ -596,7 +596,7 @@ void CMenu::MenuAimbot(int iTab)
 					FDropdown(Vars::Aimbot::Projectile::SplashPrediction, FDropdownEnum::Right);
 					FDropdown(Vars::Aimbot::Projectile::Hitboxes, FDropdownEnum::Left);
 					FDropdown(Vars::Aimbot::Projectile::Modifiers, FDropdownEnum::Right);
-					FSlider(Vars::Aimbot::Projectile::MaxSimulationTime, FSliderEnum::Left);
+					FSlider(Vars::Aimbot::Projectile::MaxSimulationTime, FSliderEnum::Left); FTooltip("Longer = less accuracy, shorter = less shoot candidates");
 					PushTransparent(!Vars::Aimbot::Projectile::StrafePrediction.Value);
 					{
 						FSlider(Vars::Aimbot::Projectile::HitChance, FSliderEnum::Right);
@@ -1159,6 +1159,11 @@ void CMenu::MenuVisuals(int iTab)
 					FColorPicker(Vars::Colors::ProjectilePath, FColorPickerEnum::SameLine, { H::Draw.Scale(-10), H::Draw.Scale(-20) }, { H::Draw.Scale(10), H::Draw.Scale(20) });
 					SameLine(); DebugDummy({ 0, H::Draw.Scale(48) });
 					FToggle(Vars::Visuals::Prediction::SwingLines);
+					FDropdown(Vars::Visuals::Prediction::BestPath, FDropdownEnum::Left, -10);
+					FColorPicker(Vars::Colors::BestPathIgnoreZ, FColorPickerEnum::SameLine, { 0, H::Draw.Scale(20) }, { H::Draw.Scale(10), H::Draw.Scale(20) });
+					FColorPicker(Vars::Colors::BestPath, FColorPickerEnum::SameLine, { H::Draw.Scale(-10), H::Draw.Scale(-20) }, { H::Draw.Scale(10), H::Draw.Scale(20) });
+					FColorPicker(Vars::Colors::AimPosColor);
+					FToggle(Vars::Visuals::Prediction::BestAimPos, FToggleEnum::Right);
 					FSlider(Vars::Visuals::Prediction::PlayerDrawDuration, FSliderEnum::Left, !Vars::Visuals::Prediction::PlayerDrawDuration[DEFAULT_BIND] ? "timed" : "%g");
 					FSlider(Vars::Visuals::Prediction::ProjectileDrawDuration, FSliderEnum::Right, !Vars::Visuals::Prediction::ProjectileDrawDuration[DEFAULT_BIND] ? "timed" : "%g");
 				} EndSection();
@@ -1818,6 +1823,23 @@ void CMenu::MenuMisc(int iTab)
 						FDropdown(Vars::Misc::MannVsMachine::BuyBotClass, { "Scout", "Soldier", "Pyro", "Demoman", "Heavy", "Engineer", "Sniper", "Spy" }, { 1, 3, 7, 4, 6, 9, 2, 8 }, FDropdownEnum::Right);
 					}
 					PopTransparent();
+					FDropdown(Vars::Misc::MannVsMachine::ChatCommands::Mode);
+					FTooltip("Allows running cat_mvm_* commands through party or in-game chat.\nOff - disabled\nParty - party members can use them\nFriends - only friends can use them\nCustom tag - only players with the tag below can use them");
+					PushTransparent(!Vars::Misc::MannVsMachine::ChatCommands::Mode.Value || Vars::Misc::MannVsMachine::ChatCommands::Mode.Value != Vars::Misc::MannVsMachine::ChatCommands::ModeEnum::CustomTag);
+					{
+						std::vector<const char*> vEntries = { "None" };
+						std::vector<int> vValues = { -1 };
+						for (int i = 0; i < F::PlayerUtils.m_vTags.size(); i++)
+						{
+							if (!F::PlayerUtils.m_vTags[i].m_bAssignable)
+								continue;
+
+							vEntries.push_back(F::PlayerUtils.m_vTags[i].m_sName.c_str());
+							vValues.push_back(i);
+						}
+						FDropdown(Vars::Misc::MannVsMachine::ChatCommands::Tag, vEntries, vValues);
+					}
+					PopTransparent();
 				} EndSection();
 			}
 
@@ -1876,6 +1898,7 @@ void CMenu::MenuMisc(int iTab)
 						if (FPopupButton("Debug", { 0, -5 }))
 						{
 							FToggle(Vars::Misc::Game::AntiCheatCritHack);
+							FDropdown(Vars::Misc::TelemetryBlocker::Mode);
 
 							EndPopup();
 						}
@@ -1887,10 +1910,6 @@ void CMenu::MenuMisc(int iTab)
 					FToggle(Vars::Misc::Sound::HitsoundAlways, FToggleEnum::Left);
 					FToggle(Vars::Misc::Sound::RemoveDSP, FToggleEnum::Right);
 					FToggle(Vars::Misc::Sound::GiantWeaponSounds);
-				} EndSection();
-				if (Section("Telemetry"))
-				{
-					FDropdown(Vars::Misc::TelemetryBlocker::Mode);
 				} EndSection();
 			}
 			EndTable();

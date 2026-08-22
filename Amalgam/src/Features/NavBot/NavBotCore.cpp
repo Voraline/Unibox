@@ -184,6 +184,25 @@ void CNavBotCore::Run(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, CUserCmd* pCmd)
 		return;
 	}
 
+	auto pGameRules = I::TFGameRules();
+	if ((Vars::Misc::Movement::NavBot::Preferences.Value & Vars::Misc::Movement::NavBot::PreferencesEnum::MVMSniper) && pGameRules && pGameRules->m_bPlayingMannVsMachine())
+	{
+		// let buybot drive while it is working, no matter which class we currently are
+		if (F::Misc.IsBuyBotBusy())
+			return;
+
+		if (pLocal->m_iClass() == TF_CLASS_SNIPER)
+		{
+			if (F::NavBotMVMSniper.Run(pCmd, pLocal))
+			{
+				m_tIdleTimer.Update();
+				m_tAntiStuckTimer.Update();
+			}
+			UpdateRunReloadInput(pCmd, false);
+			return;
+		}
+	}
+
 	// Recharge doubletap every n seconds
 	static Timer tDoubletapRecharge{};
 	if (Vars::Misc::Movement::NavBot::RechargeDT.Value && IsWeaponValidForDT(pWeapon))
@@ -258,7 +277,7 @@ void CNavBotCore::Run(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, CUserCmd* pCmd)
 			break;
 		}
 	}
-	else if (F::NavEngine.IsReady() && !F::NavEngine.IsSetupTime())
+	else if (F::NavEngine.IsReady() && !F::NavEngine.IsSetupTime() && F::NavEngine.m_eCurrentPriority == PriorityListEnum::None)
 	{
 		float flIdleTime = SDK::PlatFloatTime() - m_tIdleTimer.GetLastUpdate();
 		if (flIdleTime > m_flNextIdleTime)
@@ -379,6 +398,8 @@ static std::wstring BuildJobLabel()
 		return L"MvM money";
 	case PriorityListEnum::MVMFrontline:
 		return L"MvM frontline";
+	case PriorityListEnum::MVMSniper:
+		return L"MvM sniper";
 	default:
 		return L"None";
 	}

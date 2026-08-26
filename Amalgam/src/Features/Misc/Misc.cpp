@@ -1,5 +1,6 @@
 #include "Misc.h"
 #include "../Configs/Configs.h"
+#include "AutoItem/AutoItem.h"
 
 #include <array>
 
@@ -12,6 +13,7 @@
 #include "../EnginePrediction/EnginePrediction.h"
 #include "../NavBot/NavEngine/NavEngine.h"
 #include "../NavBot/NavBotJobs/NavBotJobs.h"
+#include "../PacketManip/AntiAim/AntiAim.h"
 #ifdef TEXTMODE
 #include "NamedPipe/NamedPipe.h"
 #endif
@@ -1020,6 +1022,7 @@ void CMisc::Event(IGameEvent* pEvent, uint32_t uHash)
 		m_bAutoBalanceTeamChangePending = false;
 		ResetBuyBot();
 		F::NavBotMVMSniper.Reset();
+		F::AntiAim.OnLevelInit();
 
 		m_bEdgeBug = m_bEdgeBugCrouch = false;
 		m_iEdgeBugMoveStage = EBStageEnum::Normal;
@@ -1838,7 +1841,7 @@ bool CMisc::BuyBotWalkAwayFromStation(CTFPlayer* pLocal, CUserCmd* pCmd, const V
 	if (!pLocal || !pCmd || vStation.IsZero())
 		return false;
 
-	if (m_bBuybotUsingNav)
+	if (m_bBuybotUsingNav || F::NavEngine.m_eCurrentPriority == PriorityListEnum::BuyBot)
 		F::NavEngine.CancelPath();
 
 	Vec3 vDirection = pLocal->GetAbsOrigin() - vStation;
@@ -1847,7 +1850,10 @@ bool CMisc::BuyBotWalkAwayFromStation(CTFPlayer* pLocal, CUserCmd* pCmd, const V
 		vDirection = { 1.0f, 0.0f, 0.0f };
 	vDirection.Normalize();
 
-	SDK::WalkTo(pCmd, pLocal, pLocal->GetAbsOrigin() + vDirection * 320.0f);
+	Vec3 vWalkTarget = pLocal->GetAbsOrigin() + vDirection * 700.0f;
+	if (auto pArea = F::NavEngine.FindClosestNavArea(vWalkTarget, false))
+		vWalkTarget = pArea->GetNearestPoint(Vector2D(vWalkTarget.x, vWalkTarget.y));
+	SDK::WalkTo(pCmd, pLocal, vWalkTarget);
 	m_bBuybotUsingNav = false;
 	m_flBuybotStationPathStart = 0.0f;
 	return true;
@@ -1864,12 +1870,161 @@ static bool HasVaccinator(CTFPlayer* pLocal)
 	return false;
 }
 
+namespace MvMUpgrades
+{
+	enum EUpgrade
+	{
+		DAMAGE_BONUS,
+		DAMAGE_BONUS_LOW,
+		FIRE_RATE,
+		FIRE_RATE_EXPENSIVE,
+		MELEE_ATTACK_RATE,
+		CLIP_SIZE,
+		PRIMARY_AMMO,
+		SECONDARY_AMMO,
+		GRENADE_AMMO,
+		METAL_CAPACITY,
+		BLEEDING_DURATION,
+		HEAL_ON_KILL,
+		PROJECTILE_PENETRATION,
+		PROJECTILE_PENETRATION_HEAVY,
+		CRITBOOST_CANTEEN,
+		UBER_CANTEEN,
+		BIDIRECTIONAL_TELEPORT,
+		SNIPER_CHARGE_RATE,
+		EFFECT_BAR_RECHARGE,
+		UBERCHARGE_RATE,
+		ENGIE_BUILDING_HEALTH,
+		ENGIE_SENTRY_FIRERATE,
+		ENGIE_DISPENSER_RANGE,
+		ENGIE_DISPOSABLE_SENTRIES,
+		AIRBLAST_PUSHBACK,
+		RECALL_CANTEEN,
+		SNARE_EFFECT,
+		CHARGE_RECHARGE,
+		UBER_DURATION,
+		AMMO_REFILL_CANTEEN,
+		BURN_DAMAGE,
+		BURN_DURATION,
+		BUFF_DURATION,
+		PROJECTILE_SPEED,
+		INSTANT_BUILD_CANTEEN,
+		FASTER_RELOAD,
+		CRITBOOST_ON_KILL,
+		ROBO_SAPPER,
+		ATTACK_PROJECTILES,
+		RAGE_ON_DAMAGE,
+		EXPLOSIVE_SNIPER_SHOT,
+		ARMOR_PIERCING,
+		MARK_FOR_DEATH,
+		CLIP_SIZE_ATOMIC,
+		CANTEEN_SPECIALIST,
+		OVERHEAL_EXPERT,
+		MAD_MILK_SYRINGES,
+		ROCKET_SPECIALIST,
+		HEALING_MASTERY,
+		RAGE_ON_HEAL,
+		FORCE_REDUCTION,
+		GLOBAL_FIRERES,
+		GLOBAL_BLASTRES,
+		GLOBAL_BULLETRES,
+		GLOBAL_CRITRES,
+		GLOBAL_MOVESPEED,
+		GLOBAL_HEALTHREGEN,
+		GLOBAL_METALREGEN,
+		GLOBAL_JUMPHEIGHT,
+	};
+
+	enum EUpgradeSlot
+	{
+		UPGRADE_SLOT_CHARACTER = -1,
+		UPGRADE_SLOT_PRIMARY = 0,
+		UPGRADE_SLOT_SECONDARY,
+		UPGRADE_SLOT_MELEE,
+		UPGRADE_SLOT_SAPPER,
+		UPGRADE_SLOT_BUILDINGS,
+	};
+
+	inline int GetMaxLevels(int iUpgrade)
+	{
+		switch (iUpgrade)
+		{
+		case DAMAGE_BONUS: return 4;
+		case DAMAGE_BONUS_LOW: return 4;
+		case FIRE_RATE: return 4;
+		case FIRE_RATE_EXPENSIVE: return 4;
+		case MELEE_ATTACK_RATE: return 4;
+		case CLIP_SIZE: return 4;
+		case PRIMARY_AMMO: return 3;
+		case SECONDARY_AMMO: return 3;
+		case GRENADE_AMMO: return 6;
+		case METAL_CAPACITY: return 4;
+		case BLEEDING_DURATION: return 3;
+		case HEAL_ON_KILL: return 4;
+		case PROJECTILE_PENETRATION: return 1;
+		case PROJECTILE_PENETRATION_HEAVY: return 3;
+		case CRITBOOST_CANTEEN: return 1;
+		case UBER_CANTEEN: return 1;
+		case BIDIRECTIONAL_TELEPORT: return 1;
+		case SNIPER_CHARGE_RATE: return 4;
+		case EFFECT_BAR_RECHARGE: return 4;
+		case UBERCHARGE_RATE: return 4;
+		case ENGIE_BUILDING_HEALTH: return 3;
+		case ENGIE_SENTRY_FIRERATE: return 3;
+		case ENGIE_DISPENSER_RANGE: return 3;
+		case ENGIE_DISPOSABLE_SENTRIES: return 1;
+		case AIRBLAST_PUSHBACK: return 4;
+		case RECALL_CANTEEN: return 1;
+		case SNARE_EFFECT: return 1;
+		case CHARGE_RECHARGE: return 4;
+		case UBER_DURATION: return 3;
+		case AMMO_REFILL_CANTEEN: return 1;
+		case BURN_DAMAGE: return 4;
+		case BURN_DURATION: return 4;
+		case BUFF_DURATION: return 2;
+		case PROJECTILE_SPEED: return 4;
+		case INSTANT_BUILD_CANTEEN: return 1;
+		case FASTER_RELOAD: return 3;
+		case CRITBOOST_ON_KILL: return 2;
+		case ROBO_SAPPER: return 3;
+		case ATTACK_PROJECTILES: return 2;
+		case RAGE_ON_DAMAGE: return 3;
+		case EXPLOSIVE_SNIPER_SHOT: return 3;
+		case ARMOR_PIERCING: return 4;
+		case MARK_FOR_DEATH: return 1;
+		case CLIP_SIZE_ATOMIC: return 4;
+		case CANTEEN_SPECIALIST: return 3;
+		case OVERHEAL_EXPERT: return 4;
+		case MAD_MILK_SYRINGES: return 1;
+		case ROCKET_SPECIALIST: return 4;
+		case HEALING_MASTERY: return 4;
+		case RAGE_ON_HEAL: return 2;
+		case FORCE_REDUCTION: return 3;
+		case GLOBAL_FIRERES: return 3;
+		case GLOBAL_BLASTRES: return 3;
+		case GLOBAL_BULLETRES: return 3;
+		case GLOBAL_CRITRES: return 3;
+		case GLOBAL_MOVESPEED: return 3;
+		case GLOBAL_HEALTHREGEN: return 5;
+		case GLOBAL_METALREGEN: return 5;
+		case GLOBAL_JUMPHEIGHT: return 3;
+		default: return 4;
+		}
+	}
+}
+
 void CMisc::ExecBuyBot(CTFPlayer* pLocal, CUserCmd* pCmd)
 {
+	auto CancelBuyBotPath = [&]()
+	{
+		if (m_bBuybotUsingNav || F::NavEngine.m_eCurrentPriority == PriorityListEnum::BuyBot)
+			F::NavEngine.CancelPath();
+		m_bBuybotUsingNav = false;
+	};
+
 	if (!Vars::Misc::MannVsMachine::BuyBot.Value)
 	{
-		if (m_bBuybotUsingNav)
-			F::NavEngine.CancelPath();
+		CancelBuyBotPath();
 		ResetBuyBot();
 		return;
 	}
@@ -1877,17 +2032,47 @@ void CMisc::ExecBuyBot(CTFPlayer* pLocal, CUserCmd* pCmd)
 	auto pGameRules = I::TFGameRules();
 	if (!pGameRules || !pGameRules->m_bPlayingMannVsMachine())
 	{
-		if (m_bBuybotUsingNav)
-			F::NavEngine.CancelPath();
+		CancelBuyBotPath();
 		ResetBuyBot();
 		return;
 	}
+
+	if (m_bBuybotUsingNav && !F::NavEngine.IsPathing())
+		m_bBuybotUsingNav = false;
+	if (!m_bBuybotUsingNav && F::NavEngine.m_eCurrentPriority == PriorityListEnum::BuyBot)
+		CancelBuyBotPath();
 
 	if ((pLocal->m_iClass() == TF_CLASS_MEDIC || pLocal->m_bInUpgradeZone()) && !HasVaccinator(pLocal))
 		m_bBuybotCashLimitReached = true;
 
 	if (Vars::Misc::MannVsMachine::MaxCash.Value > 0 && pLocal->m_nCurrency() >= Vars::Misc::MannVsMachine::MaxCash.Value)
 		m_bBuybotCashLimitReached = true;
+
+	{
+		auto pObjRes = H::Entities.GetObjectiveResource();
+		if (pObjRes)
+		{
+			const int iWave = pObjRes->m_nMannVsMachineWaveCount();
+			const bool bBetween = pObjRes->m_bMannVsMachineBetweenWaves();
+			const int iState = pGameRules ? pGameRules->m_iRoundState() : 0;
+			const bool bWaveRunning = !bBetween && iState == GR_STATE_RND_RUNNING;
+			if (iWave > 1)
+			{
+				m_bBuybotFinishedUpgrades = true;
+				m_bBuybotCashLimitReached = true;
+				CancelBuyBotPath();
+				m_flBuybotStationPathStart = 0.f;
+				m_vBuybotStationTarget = {};
+				return;
+			}
+			if (bWaveRunning)
+				m_bBuybotCashLimitReached = true;
+		}
+		else if (pGameRules && pGameRules->m_iRoundState() == GR_STATE_RND_RUNNING)
+		{
+			m_bBuybotCashLimitReached = true;
+		}
+	}
 
 	if (!m_bBuybotFinishedUpgrades && !pLocal->m_bInUpgradeZone())
 	{
@@ -1935,6 +2120,7 @@ void CMisc::ExecBuyBot(CTFPlayer* pLocal, CUserCmd* pCmd)
 		if (pLocal->m_bInUpgradeZone() && BuyBotWalkAwayFromStation(pLocal, pCmd, vBestStation))
 			return;
 
+		F::NavEngine.CancelPath();
 		BuyBotJoinClass(iDesiredClass);
 		return;
 	}
@@ -1942,10 +2128,8 @@ void CMisc::ExecBuyBot(CTFPlayer* pLocal, CUserCmd* pCmd)
 	const bool bWaitingForMedicClass = Vars::Misc::MannVsMachine::BuyBotAutoClass.Value && !m_bBuybotCashLimitReached && pLocal->m_iClass() != TF_CLASS_MEDIC;
 	if (m_bBuybotFinishedUpgrades)
 	{
-		if (m_bBuybotUsingNav)
-			F::NavEngine.CancelPath();
+		CancelBuyBotPath();
 		m_flBuybotStationPathStart = 0.0f;
-		m_bBuybotUsingNav = false;
 		return;
 	}
 
@@ -1953,9 +2137,10 @@ void CMisc::ExecBuyBot(CTFPlayer* pLocal, CUserCmd* pCmd)
 	{
 		if (m_vBuybotStationTarget.IsZero() || m_vBuybotStationTarget.DistToSqr(vBestStation) > 4096.0f)
 		{
+			CancelBuyBotPath();
 			m_vBuybotStationTarget = vBestStation;
 			m_flBuybotStationPathStart = I::GlobalVars->curtime;
-			m_bBuybotUsingNav = false;
+			m_flBuybotNavClock = 0.0f;
 		}
 
 		if (!pLocal->m_bInUpgradeZone() && pLocal->IsAlive() && !pLocal->IsAGhost() && pLocal->m_MoveType() == MOVETYPE_WALK && !pLocal->IsSwimming() && !pLocal->IsTaunting())
@@ -1964,30 +2149,42 @@ void CMisc::ExecBuyBot(CTFPlayer* pLocal, CUserCmd* pCmd)
 			if (m_flBuybotStationPathStart == 0.0f)
 				m_flBuybotStationPathStart = flCurTime;
 
-			if (flCurTime - m_flBuybotStationPathStart >= 12.0f)
+			if (flCurTime - m_flBuybotStationPathStart >= 0.5f)
 			{
 				if (!m_bBuybotUsingNav || m_flBuybotNavClock <= flCurTime || m_vBuybotStationTarget.DistToSqr(vBestStation) > 4096.0f)
 				{
-					F::NavEngine.NavTo(vBestStation, PriorityListEnum::Forced, true, !F::NavEngine.IsPathing());
-					m_flBuybotNavClock = flCurTime + 0.5f;
+					if (!m_bBuybotUsingNav && F::NavEngine.IsReady() && F::NavEngine.m_eCurrentPriority != PriorityListEnum::BuyBot)
+						F::NavEngine.CancelPath();
+					const bool bNavStarted = F::NavEngine.NavTo(vBestStation, PriorityListEnum::BuyBot, true, true);
+					m_bBuybotUsingNav = bNavStarted;
+					if (bNavStarted)
+						m_flBuybotNavClock = flCurTime + 0.5f;
+					else if (F::NavEngine.m_eCurrentPriority == PriorityListEnum::BuyBot)
+						F::NavEngine.CancelPath();
 				}
-				m_bBuybotUsingNav = true;
 			}
 			else if (pCmd)
-				SDK::WalkTo(pCmd, pLocal, vBestStation);
+			{
+				if (!m_bBuybotUsingNav && F::NavEngine.IsReady() && F::NavEngine.m_eCurrentPriority != PriorityListEnum::BuyBot)
+					F::NavEngine.CancelPath();
+				const bool bNavStarted = F::NavEngine.NavTo(vBestStation, PriorityListEnum::BuyBot, true, true);
+				m_bBuybotUsingNav = bNavStarted;
+				if (!bNavStarted && F::NavEngine.m_eCurrentPriority == PriorityListEnum::BuyBot)
+					F::NavEngine.CancelPath();
+			}
 		}
 	}
 	else
 	{
+		CancelBuyBotPath();
 		m_flBuybotStationPathStart = 0.0f;
-		m_bBuybotUsingNav = false;
 		m_vBuybotStationTarget = {};
 	}
 
 	if (!pLocal->m_bInUpgradeZone())
 		return;
 
-	if (m_bBuybotUsingNav)
+	if (m_bBuybotUsingNav || F::NavEngine.m_eCurrentPriority == PriorityListEnum::BuyBot)
 		F::NavEngine.CancelPath();
 
 	m_flBuybotStationPathStart = 0.0f;
@@ -2009,13 +2206,181 @@ void CMisc::ExecBuyBot(CTFPlayer* pLocal, CUserCmd* pCmd)
 			return;
 		}
 
+		if (pLocal->m_iClass() == TF_CLASS_SCOUT)
+		{
+			static Timer tScoutEquipTimer{};
+			if (tScoutEquipTimer.Run(3.f))
+			{
+				if (auto pInventoryManager = I::TFInventoryManager())
+					if (auto pLocalInventory = pInventoryManager->GetLocalInventory())
+					{
+						F::AutoItem.EquipWeapon(pInventoryManager, pLocalInventory, TF_CLASS_SCOUT, SLOT_PRIMARY, Scout_m_ForceANature);
+						F::AutoItem.EquipWeapon(pInventoryManager, pLocalInventory, TF_CLASS_SCOUT, SLOT_SECONDARY, Scout_s_MadMilk);
+					}
+			}
+		}
+
+		static const std::vector<std::pair<int, int>> s_vSniperPlan =
+		{
+			{MvMUpgrades::SNIPER_CHARGE_RATE, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::FASTER_RELOAD, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::FIRE_RATE, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::CLIP_SIZE, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::PRIMARY_AMMO, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::PROJECTILE_PENETRATION, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::PROJECTILE_PENETRATION_HEAVY, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::EXPLOSIVE_SNIPER_SHOT, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::ARMOR_PIERCING, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::GLOBAL_BLASTRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_BULLETRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_CRITRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_FIRERES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_HEALTHREGEN, MvMUpgrades::UPGRADE_SLOT_CHARACTER}
+		};
+		static const std::vector<std::pair<int, int>> s_vPyroPlan =
+		{
+			{MvMUpgrades::GLOBAL_BLASTRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_BULLETRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_CRITRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_FIRERES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_HEALTHREGEN, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::BURN_DAMAGE, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::BURN_DURATION, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::PROJECTILE_SPEED, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::DAMAGE_BONUS, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::FIRE_RATE, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::CLIP_SIZE, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::PRIMARY_AMMO, MvMUpgrades::UPGRADE_SLOT_PRIMARY}
+		};
+		static const std::vector<std::pair<int, int>> s_vHeavyPlan =
+		{
+			{MvMUpgrades::GLOBAL_BLASTRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_BULLETRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_CRITRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_FIRERES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_HEALTHREGEN, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::DAMAGE_BONUS, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::FIRE_RATE, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::CLIP_SIZE, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::PRIMARY_AMMO, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::HEAL_ON_KILL, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::PROJECTILE_PENETRATION, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::PROJECTILE_PENETRATION_HEAVY, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::ARMOR_PIERCING, MvMUpgrades::UPGRADE_SLOT_PRIMARY}
+		};
+		static const std::vector<std::pair<int, int>> s_vScoutPlan =
+		{
+			{MvMUpgrades::GLOBAL_BLASTRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_BULLETRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_CRITRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_FIRERES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_MOVESPEED, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_HEALTHREGEN, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::MAD_MILK_SYRINGES, MvMUpgrades::UPGRADE_SLOT_SECONDARY},
+			{MvMUpgrades::DAMAGE_BONUS, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::FIRE_RATE, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::CLIP_SIZE, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::PRIMARY_AMMO, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::PROJECTILE_PENETRATION, MvMUpgrades::UPGRADE_SLOT_PRIMARY}
+		};
+		static const std::vector<std::pair<int, int>> s_vEngineerPlan =
+		{
+			{MvMUpgrades::ENGIE_DISPENSER_RANGE, MvMUpgrades::UPGRADE_SLOT_BUILDINGS},
+			{MvMUpgrades::ENGIE_BUILDING_HEALTH, MvMUpgrades::UPGRADE_SLOT_BUILDINGS},
+			{MvMUpgrades::GLOBAL_BLASTRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_BULLETRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_CRITRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_FIRERES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_METALREGEN, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_HEALTHREGEN, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::MELEE_ATTACK_RATE, MvMUpgrades::UPGRADE_SLOT_MELEE},
+			{MvMUpgrades::DAMAGE_BONUS, MvMUpgrades::UPGRADE_SLOT_MELEE}
+		};
+		static const std::vector<std::pair<int, int>> s_vSoldierPlan =
+		{
+			{MvMUpgrades::GLOBAL_BLASTRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::DAMAGE_BONUS, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::GLOBAL_BULLETRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::FIRE_RATE, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::GLOBAL_CRITRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::CLIP_SIZE, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::GLOBAL_FIRERES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::PRIMARY_AMMO, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::GLOBAL_HEALTHREGEN, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::ROCKET_SPECIALIST, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::PROJECTILE_SPEED, MvMUpgrades::UPGRADE_SLOT_PRIMARY}
+		};
+		static const std::vector<std::pair<int, int>> s_vDemomanPlan =
+		{
+			{MvMUpgrades::GLOBAL_BLASTRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::DAMAGE_BONUS, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::GLOBAL_BULLETRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::FIRE_RATE, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::GLOBAL_CRITRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::CLIP_SIZE, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::GLOBAL_FIRERES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GRENADE_AMMO, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::GLOBAL_HEALTHREGEN, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::CHARGE_RECHARGE, MvMUpgrades::UPGRADE_SLOT_PRIMARY},
+			{MvMUpgrades::PROJECTILE_SPEED, MvMUpgrades::UPGRADE_SLOT_PRIMARY}
+		};
+		static const std::vector<std::pair<int, int>> s_vSpyPlan =
+		{
+			{MvMUpgrades::ROBO_SAPPER, MvMUpgrades::UPGRADE_SLOT_SAPPER},
+			{MvMUpgrades::GLOBAL_BLASTRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_BULLETRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_CRITRES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::GLOBAL_FIRERES, MvMUpgrades::UPGRADE_SLOT_CHARACTER},
+			{MvMUpgrades::MELEE_ATTACK_RATE, MvMUpgrades::UPGRADE_SLOT_MELEE},
+			{MvMUpgrades::DAMAGE_BONUS, MvMUpgrades::UPGRADE_SLOT_MELEE}
+		};
+
+		const std::vector<std::pair<int, int>>* pPlan = nullptr;
+		switch (pLocal->m_iClass())
+		{
+		case TF_CLASS_SNIPER:	pPlan = &s_vSniperPlan; break;
+		case TF_CLASS_PYRO:		pPlan = &s_vPyroPlan; break;
+		case TF_CLASS_HEAVYWEAPONS:	pPlan = &s_vHeavyPlan; break;
+		case TF_CLASS_SCOUT:	pPlan = &s_vScoutPlan; break;
+		case TF_CLASS_ENGINEER:	pPlan = &s_vEngineerPlan; break;
+		case TF_CLASS_SOLDIER:	pPlan = &s_vSoldierPlan; break;
+		case TF_CLASS_DEMOMAN:	pPlan = &s_vDemomanPlan; break;
+		case TF_CLASS_SPY:		pPlan = &s_vSpyPlan; break;
+		default: break;
+		}
+
+		if (pPlan && m_iBuybotPriorityStep < static_cast<int>(pPlan->size()))
+		{
+			const auto& [iUpgrade, iSlot] = (*pPlan)[m_iBuybotPriorityStep++];
+			const int iMaxLevels = MvMUpgrades::GetMaxLevels(iUpgrade);
+
+			I::EngineClient->ServerCmdKeyValues(new KeyValues("MvM_UpgradesBegin"));
+			for (int iLevel = 0; iLevel < iMaxLevels; iLevel++)
+			{
+				KeyValues* kv = new KeyValues("MVM_Upgrade");
+				KeyValues* sub = kv->FindKey("Upgrade", true);
+				sub->SetInt("itemslot", iSlot);
+				sub->SetInt("upgrade", iUpgrade);
+				sub->SetInt("count", 1);
+				I::EngineClient->ServerCmdKeyValues(kv);
+			}
+			{
+				KeyValues* kv = new KeyValues("MvM_UpgradesDone");
+				kv->SetInt("num_upgrades", iMaxLevels);
+				I::EngineClient->ServerCmdKeyValues(kv);
+			}
+
+			m_flBuybotClock = flCurTime + 0.05f;
+			return;
+		}
+
 		constexpr int iMaxUpgradeIndex = 128;
-		constexpr int iMaxUpgradeLevels = 10;
 		const int aSlots[] = { 0, -1 };
 		const int iSlot = aSlots[m_iBuybotUpgradeSlotStep % std::size(aSlots)];
+		const int iMaxLevelsGeneric = MvMUpgrades::GetMaxLevels(m_iBuybotUpgradeIndex);
 
 		I::EngineClient->ServerCmdKeyValues(new KeyValues("MvM_UpgradesBegin"));
-		for (int iLevel = 0; iLevel < iMaxUpgradeLevels; iLevel++)
+		for (int iLevel = 0; iLevel < iMaxLevelsGeneric; iLevel++)
 		{
 			KeyValues* kv = new KeyValues("MVM_Upgrade");
 			KeyValues* sub = kv->FindKey("Upgrade", true);
@@ -2026,7 +2391,7 @@ void CMisc::ExecBuyBot(CTFPlayer* pLocal, CUserCmd* pCmd)
 		}
 		{
 			KeyValues* kv = new KeyValues("MvM_UpgradesDone");
-			kv->SetInt("num_upgrades", iMaxUpgradeLevels);
+			kv->SetInt("num_upgrades", iMaxLevelsGeneric);
 			I::EngineClient->ServerCmdKeyValues(kv);
 		}
 
@@ -2061,7 +2426,7 @@ void CMisc::ExecBuyBot(CTFPlayer* pLocal, CUserCmd* pCmd)
 			KeyValues* kv = new KeyValues("MVM_Upgrade");
 			KeyValues* sub = kv->FindKey("Upgrade", true);
 			sub->SetInt("itemslot", 1);
-			sub->SetInt("Upgrade", 19);
+			sub->SetInt("Upgrade", MvMUpgrades::UBERCHARGE_RATE);
 			sub->SetInt("count", 1);
 			I::EngineClient->ServerCmdKeyValues(kv);
 		}
@@ -2069,7 +2434,7 @@ void CMisc::ExecBuyBot(CTFPlayer* pLocal, CUserCmd* pCmd)
 			KeyValues* kv = new KeyValues("MVM_Upgrade");
 			KeyValues* sub = kv->FindKey("Upgrade", true);
 			sub->SetInt("itemslot", 1);
-			sub->SetInt("Upgrade", 19);
+			sub->SetInt("Upgrade", MvMUpgrades::UBERCHARGE_RATE);
 			sub->SetInt("count", 1);
 			I::EngineClient->ServerCmdKeyValues(kv);
 		}
@@ -2085,7 +2450,7 @@ void CMisc::ExecBuyBot(CTFPlayer* pLocal, CUserCmd* pCmd)
 			KeyValues* kv = new KeyValues("MVM_Upgrade");
 			KeyValues* sub = kv->FindKey("Upgrade", true);
 			sub->SetInt("itemslot", 1);
-			sub->SetInt("Upgrade", 19);
+			sub->SetInt("Upgrade", MvMUpgrades::UBERCHARGE_RATE);
 			sub->SetInt("count", -1);
 			I::EngineClient->ServerCmdKeyValues(kv);
 		}
@@ -2093,7 +2458,7 @@ void CMisc::ExecBuyBot(CTFPlayer* pLocal, CUserCmd* pCmd)
 			KeyValues* kv = new KeyValues("MVM_Upgrade");
 			KeyValues* sub = kv->FindKey("Upgrade", true);
 			sub->SetInt("itemslot", 1);
-			sub->SetInt("Upgrade", 19);
+			sub->SetInt("Upgrade", MvMUpgrades::UBERCHARGE_RATE);
 			sub->SetInt("count", 1);
 			I::EngineClient->ServerCmdKeyValues(kv);
 		}
@@ -2110,7 +2475,7 @@ void CMisc::ExecBuyBot(CTFPlayer* pLocal, CUserCmd* pCmd)
 			KeyValues* kv = new KeyValues("MVM_Upgrade");
 			KeyValues* sub = kv->FindKey("Upgrade", true);
 			sub->SetInt("itemslot", 1);
-			sub->SetInt("Upgrade", 19);
+			sub->SetInt("Upgrade", MvMUpgrades::UBERCHARGE_RATE);
 			sub->SetInt("count", 1);
 			I::EngineClient->ServerCmdKeyValues(kv);
 		}
@@ -2118,7 +2483,7 @@ void CMisc::ExecBuyBot(CTFPlayer* pLocal, CUserCmd* pCmd)
 			KeyValues* kv = new KeyValues("MVM_Upgrade");
 			KeyValues* sub = kv->FindKey("Upgrade", true);
 			sub->SetInt("itemslot", 1);
-			sub->SetInt("Upgrade", 19);
+			sub->SetInt("Upgrade", MvMUpgrades::UBERCHARGE_RATE);
 			sub->SetInt("count", 1);
 			I::EngineClient->ServerCmdKeyValues(kv);
 		}
@@ -2126,7 +2491,7 @@ void CMisc::ExecBuyBot(CTFPlayer* pLocal, CUserCmd* pCmd)
 			KeyValues* kv = new KeyValues("MVM_Upgrade");
 			KeyValues* sub = kv->FindKey("Upgrade", true);
 			sub->SetInt("itemslot", 1);
-			sub->SetInt("Upgrade", 19);
+			sub->SetInt("Upgrade", MvMUpgrades::UBERCHARGE_RATE);
 			sub->SetInt("count", -1);
 			I::EngineClient->ServerCmdKeyValues(kv);
 		}
@@ -2134,7 +2499,7 @@ void CMisc::ExecBuyBot(CTFPlayer* pLocal, CUserCmd* pCmd)
 			KeyValues* kv = new KeyValues("MVM_Upgrade");
 			KeyValues* sub = kv->FindKey("Upgrade", true);
 			sub->SetInt("itemslot", 1);
-			sub->SetInt("Upgrade", 19);
+			sub->SetInt("Upgrade", MvMUpgrades::UBERCHARGE_RATE);
 			sub->SetInt("count", -1);
 			I::EngineClient->ServerCmdKeyValues(kv);
 		}
@@ -2162,6 +2527,7 @@ void CMisc::ResetBuyBot()
 	m_bBuybotUsingNav = false;
 	m_bBuybotCashLimitReached = false;
 	m_bBuybotFinishedUpgrades = false;
+	m_iBuybotPriorityStep = 0;
 	m_vBuybotStationTarget = {};
 	m_flBuybotStallClock = 0.f;
 }
@@ -2195,7 +2561,17 @@ bool CMisc::IsBuyBotBusy() const
 	if (m_flBuybotStallClock && I::GlobalVars->curtime - m_flBuybotStallClock > 45.f)
 		return false;
 
-	return true;
+	auto pLocal = H::Entities.GetLocal();
+	if (!pLocal)
+		return false;
+
+	if (pLocal->m_bInUpgradeZone())
+		return true;
+
+	if (Vars::Misc::MannVsMachine::BuyBotAutoClass.Value && m_flBuybotClassClock > I::GlobalVars->curtime)
+		return true;
+
+	return m_bBuybotUsingNav && F::NavEngine.IsPathing();
 }
 
 void CMisc::OnBuyBotClassChangeBlocked()

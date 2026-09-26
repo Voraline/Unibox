@@ -227,7 +227,7 @@
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
-    <WholeProgramOptimization>false</WholeProgramOptimization>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
@@ -1068,8 +1068,7 @@
       <LanguageStandard>stdcpplatest</LanguageStandard>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
-      <OmitFramePointers>
-      </OmitFramePointers>
+      <OmitFramePointers>true</OmitFramePointers>
       <StringPooling>true</StringPooling>
       <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
@@ -1077,6 +1076,10 @@
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <SupportJustMyCode>
       </SupportJustMyCode>
+      <Optimization>MaxSpeed</Optimization>
+      <ControlFlowGuard>false</ControlFlowGuard>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <AdditionalOptions>/Ob3 /volatile:iso /Gw /Zc:inline /Zc:threadSafeInit- /Zc:throwingNew /Qpar /d2FH4- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -1085,6 +1088,12 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>
       </AdditionalLibraryDirectories>
+      <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
+      <LinkIncremental>false</LinkIncremental>
+      <RandomizedBaseAddress>false</RandomizedBaseAddress>
+      <DataExecutionPrevention>false</DataExecutionPrevention>
+      <SetChecksum>true</SetChecksum>
+      <AdditionalOptions>/CGTHREADS:8 /MERGE:.rdata=.text /MERGE:.pdata=.text /FILEALIGN:512 /OPT:ICF=5 /FIXED:NO %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>

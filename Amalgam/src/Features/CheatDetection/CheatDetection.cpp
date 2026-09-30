@@ -190,7 +190,7 @@ bool CCheatDetection::IsFlicking(CTFPlayer* pEntity)
 		}
 
 		const float flDistance = vShootPos.DistTo(vTargetCenter);
-		const float flMaxHitboxAngle = std::clamp(Rad2Deg(atan2f(28.f, std::max(flDistance, 32.f))), 1.5f, 6.0f);
+		const float flMaxHitboxAngle = std::clamp(Math::Rad2Deg(atan2f(28.f, std::max(flDistance, 32.f))), 1.5f, 6.0f);
 
 		if (flTargetMinFov <= flMaxHitboxAngle && flTargetMinFov < flBeforeMinFov && flTargetMinFov < flAfterMinFov)
 		{
@@ -528,7 +528,7 @@ void CCheatDetection::ReportDamage(IGameEvent* pEvent)
 						}
 
 						const float flDistance = vShootPos.DistTo(vVictimCenter);
-						const float flMaxHitboxAngle = std::clamp(Rad2Deg(atan2f(32.f, std::max(flDistance, 32.f))), 2.0f, 7.0f);
+						const float flMaxHitboxAngle = std::clamp(Math::Rad2Deg(atan2f(32.f, std::max(flDistance, 32.f))), 2.0f, 7.0f);
 
 						if (flVictimMinFov <= flMaxHitboxAngle && flVictimMinFov < flBeforeMinFov)
 						{

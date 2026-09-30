@@ -3,8 +3,12 @@
 
 struct AngleHistory_t
 {
-	Vec3 m_vAngle;
-	bool m_bAttacking;
+	Vec3 m_vAngle = {};
+	float m_flSimTime = 0.f;
+	int m_iTick = 0;
+	bool m_bAttacking = false;
+	bool m_bFired = false;
+	bool m_bDamage = false;
 };
 
 struct PlayerInfo
@@ -16,22 +20,24 @@ struct PlayerInfo
 
 	struct PacketChoking_t
 	{
-		std::deque<int> m_vChokes = {}; // store last 3 choke counts
-		bool m_bInfract = false; // infract the user for choking?
+		std::deque<int> m_vChokes = {};
+		bool m_bInfract = false;
 
 		struct LagCompAbuse_t
 		{
-			std::deque<int> m_vBurstTicks = {}; // tickcounts of recent multi-cmd bursts
-			std::deque<int> m_vDeltaCmds = {}; // delta cmd counts for reference
+			std::deque<int> m_vBurstTicks = {};
+			std::deque<int> m_vDeltaCmds = {};
 			bool m_bInfract = false;
 		} m_LagComp;
 	} m_PacketChoking;
 
 	struct AimFlicking_t
 	{
-		std::deque<AngleHistory_t> m_vAngles = {}; // store last 3 angles & if damage was dealt
+		std::deque<AngleHistory_t> m_vAngles = {};
+		float m_flLastFireTime = 0.f;
+		bool m_bInfract = false;
 	} m_AimFlicking;
-					
+
 	struct DuckSpeed_t
 	{
 		int m_iStartTick = 0;

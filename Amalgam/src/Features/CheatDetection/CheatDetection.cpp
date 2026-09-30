@@ -5,7 +5,7 @@
 
 bool CCheatDetection::ShouldScan()
 {
-	if (!Vars::CheatDetection::Methods.Value /*|| I::EngineClient->IsPlayingDemo()*/)
+	if (!Vars::CheatDetection::Methods.Value)
 		return false;
 
 	static int iStaticTickcount = I::GlobalVars->tickcount;
@@ -34,26 +34,133 @@ bool CCheatDetection::IsChoking(CTFPlayer* pEntity)
 	return Vars::CheatDetection::Methods.Value & Vars::CheatDetection::MethodsEnum::PacketChoking && bReturn;
 }
 
-bool CCheatDetection::IsFlicking(CTFPlayer* pEntity) // awful
+bool CCheatDetection::IsFlicking(CTFPlayer* pEntity)
 {
-	auto& vAngles = mData[pEntity].m_AimFlicking.m_vAngles;
 	if (!(Vars::CheatDetection::Methods.Value & Vars::CheatDetection::MethodsEnum::AimFlicking))
 	{
-		vAngles.clear();
+		mData[pEntity].m_AimFlicking = {};
 		return false;
 	}
 
-	vAngles.emplace_front(pEntity->GetEyeAngles(), false);
-	if (vAngles.size() > 3)
-		vAngles.pop_back();
+	auto& tFlick = mData[pEntity].m_AimFlicking;
+	if (tFlick.m_bInfract)
+	{
+		tFlick.m_bInfract = false;
+		return true;
+	}
 
-	if (vAngles.size() != 3 || !vAngles[0].m_bAttacking && !vAngles[1].m_bAttacking && !vAngles[2].m_bAttacking
-		|| Math::CalcFov(vAngles[0].m_vAngle, vAngles[1].m_vAngle) < Vars::CheatDetection::MinFlick.Value
-		|| Math::CalcFov(vAngles[0].m_vAngle, vAngles[2].m_vAngle) > Vars::CheatDetection::MaxNoise.Value * (TICK_INTERVAL / 0.015f))
+	auto pWeapon = pEntity->m_hActiveWeapon()->As<CTFWeaponBase>();
+	bool bFired = false;
+	if (pWeapon)
+	{
+		const float flLastFire = pWeapon->m_flLastFireTime();
+		if (flLastFire > 0.f && flLastFire != tFlick.m_flLastFireTime)
+		{
+			if (tFlick.m_flLastFireTime > 0.f)
+				bFired = true;
+			tFlick.m_flLastFireTime = flLastFire;
+		}
+	}
+
+	tFlick.m_vAngles.emplace_front(pEntity->GetEyeAngles(), pEntity->m_flSimulationTime(), I::GlobalVars->tickcount, false, bFired, false);
+	if (tFlick.m_vAngles.size() > 24)
+		tFlick.m_vAngles.pop_back();
+
+	if (tFlick.m_vAngles.size() < 3)
 		return false;
 
-	vAngles.clear();
-	return true;
+	const auto& recAfter = tFlick.m_vAngles[0];
+	const auto& recShot = tFlick.m_vAngles[1];
+	const auto& recBefore = tFlick.m_vAngles[2];
+
+	const Vec3 vBefore = recBefore.m_vAngle;
+	const Vec3 vShot = recShot.m_vAngle;
+	const Vec3 vAfter = recAfter.m_vAngle;
+
+	const Vec3 vDeltaIn = vShot.DeltaAngle(vBefore);
+	const Vec3 vDeltaOut = vAfter.DeltaAngle(vShot);
+	const Vec3 vDeltaBase = vAfter.DeltaAngle(vBefore);
+
+	const float flLenIn = sqrtf(vDeltaIn.x * vDeltaIn.x + vDeltaIn.y * vDeltaIn.y);
+	const float flLenOut = sqrtf(vDeltaOut.x * vDeltaOut.x + vDeltaOut.y * vDeltaOut.y);
+	if (flLenIn < 0.05f || flLenOut < 0.05f)
+		return false;
+
+	const float flDot = vDeltaIn.x * vDeltaOut.x + vDeltaIn.y * vDeltaOut.y;
+	const float flCos = flDot / (flLenIn * flLenOut);
+	if (flCos >= -0.65f)
+		return false;
+
+	const float flFovIn = Math::CalcFov(vBefore, vShot);
+	const float flFovOut = Math::CalcFov(vShot, vAfter);
+	const float flFovBase = Math::CalcFov(vBefore, vAfter);
+
+	Vec3 vMid = vBefore + vDeltaBase * 0.5f;
+	Math::ClampAngles(vMid);
+	const float flExcursion = Math::CalcFov(vShot, vMid);
+
+	const float flMinFov = std::min(flFovIn, flFovOut);
+	const float flMaxFov = std::max(flFovIn, flFovOut);
+	const float flRatio = flMinFov / (flMaxFov + 0.001f);
+
+	if (flRatio < 0.35f || flExcursion < 0.15f)
+		return false;
+
+	const float flMaxNoise = Vars::CheatDetection::MaxNoise.Value * (TICK_INTERVAL / 0.015f);
+	if (flExcursion >= Vars::CheatDetection::MinFlick.Value && flFovBase <= flMaxNoise)
+		return true;
+
+	const Vec3 vShootPos = pEntity->m_vecOrigin() + pEntity->GetViewOffset();
+	bool bAimedAtEnemy = false;
+	for (auto pTargetEntity : H::Entities.GetGroup(EntityEnum::PlayerAll))
+	{
+		auto pTarget = pTargetEntity->As<CTFPlayer>();
+		if (!pTarget || pTarget == pEntity || !pTarget->IsAlive() || pTarget->IsDormant() || pTarget->IsAGhost())
+			continue;
+
+		if (pTarget->m_iTeamNum() == pEntity->m_iTeamNum() && !SDK::FriendlyFire())
+			continue;
+
+		const Vec3 vTargetCenter = pTarget->GetCenter();
+		const Vec3 vAngleToCenter = Math::CalcAngle(vShootPos, vTargetCenter);
+		const float flTargetCenterFov = Math::CalcFov(vShot, vAngleToCenter);
+
+		const Vec3 vTargetEye = pTarget->GetEyePosition();
+		const Vec3 vAngleToEye = Math::CalcAngle(vShootPos, vTargetEye);
+		const float flTargetEyeFov = Math::CalcFov(vShot, vAngleToEye);
+
+		const float flTargetMinFov = std::min(flTargetCenterFov, flTargetEyeFov);
+		if (flTargetMinFov <= 4.5f)
+		{
+			const float flBeforeCenterFov = Math::CalcFov(vBefore, vAngleToCenter);
+			const float flBeforeEyeFov = Math::CalcFov(vBefore, vAngleToEye);
+			const float flBeforeFov = std::min(flBeforeCenterFov, flBeforeEyeFov);
+
+			const float flAfterCenterFov = Math::CalcFov(vAfter, vAngleToCenter);
+			const float flAfterEyeFov = Math::CalcFov(vAfter, vAngleToEye);
+			const float flAfterFov = std::min(flAfterCenterFov, flAfterEyeFov);
+
+			if (flTargetMinFov < flBeforeFov && flTargetMinFov < flAfterFov)
+			{
+				bAimedAtEnemy = true;
+				break;
+			}
+		}
+	}
+
+	const bool bAction = recShot.m_bFired || recShot.m_bAttacking || recShot.m_bDamage;
+	if (bAimedAtEnemy)
+	{
+		if (bAction)
+			return true;
+
+		if (flExcursion >= 0.35f && flFovBase <= flMinFov * 0.5f)
+			return true;
+	}
+	else if (bAction && flExcursion >= 0.5f && flFovBase <= flMinFov * 0.4f)
+		return true;
+
+	return false;
 }
 
 bool CCheatDetection::IsDuckSpeed(CTFPlayer* pEntity)
@@ -92,9 +199,7 @@ bool CCheatDetection::IsLagCompAbusing(CTFPlayer* pEntity, int iDeltaTicks)
 	const int iRequiredBursts = std::max(1, Vars::CheatDetection::LagCompBurstCount.Value);
 
 	if (iDeltaTicks <= iMinDelta)
-	{
 		return false;
-	}
 
 	tLagComp.m_vBurstTicks.emplace_back(I::GlobalVars->tickcount);
 	tLagComp.m_vDeltaCmds.emplace_back(iDeltaTicks);
@@ -231,7 +336,7 @@ void CCheatDetection::Run()
 		if (IsChoking(pPlayer))
 			Infract(pPlayer, "choking packets");
 		if (IsFlicking(pPlayer))
-			Infract(pPlayer, "flicking");
+			Infract(pPlayer, "silent aim");
 		if (IsDuckSpeed(pPlayer))
 			Infract(pPlayer, "duck speed");
 		if (IsLagCompAbusing(pPlayer, iDeltaTicks))
@@ -253,7 +358,7 @@ void CCheatDetection::ReportChoke(CTFPlayer* pEntity, int iChoke)
 		mData[pEntity].m_PacketChoking.m_vChokes.push_back(iChoke);
 		if (mData[pEntity].m_PacketChoking.m_vChokes.size() == 3)
 		{
-			mData[pEntity].m_PacketChoking.m_bInfract = true; // check for last 3 choke amounts
+			mData[pEntity].m_PacketChoking.m_bInfract = true;
 			for (auto& iChoke : mData[pEntity].m_PacketChoking.m_vChokes)
 			{
 				if (iChoke < Vars::CheatDetection::MinChoking.Value)
@@ -273,15 +378,15 @@ void CCheatDetection::ReportDamage(IGameEvent* pEvent)
 	if (!bAimFlicking && !bCritTracking)
 		return;
 
-	int iIndex = I::EngineClient->GetPlayerForUserID(pEvent->GetInt("attacker"));
-	if (iIndex == I::EngineClient->GetLocalPlayer())
+	const int iAttacker = I::EngineClient->GetPlayerForUserID(pEvent->GetInt("attacker"));
+	if (iAttacker == I::EngineClient->GetLocalPlayer())
 		return;
 
-	auto pEntity = I::ClientEntityList->GetClientEntity(iIndex)->As<CTFPlayer>();
-	if (!pEntity || !pEntity->IsPlayer() || pEntity->IsDormant())
+	auto pAttacker = I::ClientEntityList->GetClientEntity(iAttacker)->As<CTFPlayer>();
+	if (!pAttacker || !pAttacker->IsPlayer() || pAttacker->IsDormant())
 		return;
 
-	auto pWeapon = pEntity->m_hActiveWeapon()->As<CTFWeaponBase>();
+	auto pWeapon = pAttacker->m_hActiveWeapon()->As<CTFWeaponBase>();
 	switch (SDK::GetWeaponType(pWeapon))
 	{
 	case EWeaponType::UNKNOWN:
@@ -291,11 +396,74 @@ void CCheatDetection::ReportDamage(IGameEvent* pEvent)
 
 	if (bAimFlicking)
 	{
-		auto& vAngles = mData[pEntity].m_AimFlicking.m_vAngles;
-		if (!vAngles.empty())
-			vAngles.back().m_bAttacking = true;
+		auto& tFlick = mData[pAttacker].m_AimFlicking;
+		const int iVictim = I::EngineClient->GetPlayerForUserID(pEvent->GetInt("userid"));
+		auto pVictim = I::ClientEntityList->GetClientEntity(iVictim)->As<CTFPlayer>();
+
+		const size_t nAngles = tFlick.m_vAngles.size();
+		if (nAngles >= 3)
+		{
+			const size_t nMaxCheck = std::min(nAngles - 1, size_t(10));
+			for (size_t i = 1; i < nMaxCheck; i++)
+			{
+				auto& recAfter = tFlick.m_vAngles[i - 1];
+				auto& recShot = tFlick.m_vAngles[i];
+				auto& recBefore = tFlick.m_vAngles[i + 1];
+
+				const Vec3 vBefore = recBefore.m_vAngle;
+				const Vec3 vShot = recShot.m_vAngle;
+				const Vec3 vAfter = recAfter.m_vAngle;
+
+				const Vec3 vDeltaIn = vShot.DeltaAngle(vBefore);
+				const Vec3 vDeltaOut = vAfter.DeltaAngle(vShot);
+				const float flLenIn = sqrtf(vDeltaIn.x * vDeltaIn.x + vDeltaIn.y * vDeltaIn.y);
+				const float flLenOut = sqrtf(vDeltaOut.x * vDeltaOut.x + vDeltaOut.y * vDeltaOut.y);
+				if (flLenIn < 0.05f || flLenOut < 0.05f)
+					continue;
+
+				const float flDot = vDeltaIn.x * vDeltaOut.x + vDeltaIn.y * vDeltaOut.y;
+				const float flCos = flDot / (flLenIn * flLenOut);
+				if (flCos >= -0.65f)
+					continue;
+
+				const Vec3 vDeltaBase = vAfter.DeltaAngle(vBefore);
+				Vec3 vMid = vBefore + vDeltaBase * 0.5f;
+				Math::ClampAngles(vMid);
+				const float flExcursion = Math::CalcFov(vShot, vMid);
+
+				if (flExcursion >= 0.15f)
+				{
+					if (pVictim)
+					{
+						const Vec3 vShootPos = pAttacker->m_vecOrigin() + pAttacker->GetViewOffset();
+						const float flFovToVictimCenter = Math::CalcFov(vShot, Math::CalcAngle(vShootPos, pVictim->GetCenter()));
+						const float flFovToVictimEye = Math::CalcFov(vShot, Math::CalcAngle(vShootPos, pVictim->GetEyePosition()));
+						const float flVictimFov = std::min(flFovToVictimCenter, flFovToVictimEye);
+
+						const float flBeforeFov = std::min(
+							Math::CalcFov(vBefore, Math::CalcAngle(vShootPos, pVictim->GetCenter())),
+							Math::CalcFov(vBefore, Math::CalcAngle(vShootPos, pVictim->GetEyePosition()))
+						);
+
+						if (flVictimFov <= 6.0f && flVictimFov < flBeforeFov)
+						{
+							recShot.m_bDamage = true;
+							tFlick.m_bInfract = true;
+							break;
+						}
+					}
+
+					recShot.m_bDamage = true;
+					tFlick.m_bInfract = true;
+					break;
+				}
+			}
+		}
+
+		if (!tFlick.m_vAngles.empty())
+			tFlick.m_vAngles.front().m_bAttacking = true;
 	}
 
 	if (bCritTracking)
-		TrackCritEvent(pEntity, pWeapon, pEvent->GetBool("crit"));
+		TrackCritEvent(pAttacker, pWeapon, pEvent->GetBool("crit"));
 }

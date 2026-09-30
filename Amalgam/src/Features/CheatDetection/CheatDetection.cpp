@@ -2,6 +2,7 @@
 
 #include "../Players/PlayerUtils.h"
 #include "../Output/Output.h"
+#include "../Backtrack/Backtrack.h"
 
 bool CCheatDetection::ShouldScan()
 {
@@ -49,6 +50,15 @@ bool CCheatDetection::IsFlicking(CTFPlayer* pEntity)
 		return true;
 	}
 
+	const Vec3 vCurrentOrigin = pEntity->m_vecOrigin();
+	if (!tFlick.m_vLastOrigin.IsZero() && vCurrentOrigin.DistToSqr(tFlick.m_vLastOrigin) > 62500.f)
+	{
+		tFlick.m_vAngles.clear();
+		tFlick.m_vLastOrigin = vCurrentOrigin;
+		return false;
+	}
+	tFlick.m_vLastOrigin = vCurrentOrigin;
+
 	auto pWeapon = pEntity->m_hActiveWeapon()->As<CTFWeaponBase>();
 	bool bFired = false;
 	if (pWeapon)
@@ -60,10 +70,20 @@ bool CCheatDetection::IsFlicking(CTFPlayer* pEntity)
 				bFired = true;
 			tFlick.m_flLastFireTime = flLastFire;
 		}
+
+		const int iClip = pWeapon->m_iClip1();
+		if (tFlick.m_iLastClip >= 0 && iClip >= 0 && iClip < tFlick.m_iLastClip)
+			bFired = true;
+		tFlick.m_iLastClip = iClip;
+
+		const int iShots = pWeapon->m_iConsecutiveShots();
+		if (tFlick.m_iLastShots >= 0 && iShots > tFlick.m_iLastShots)
+			bFired = true;
+		tFlick.m_iLastShots = iShots;
 	}
 
 	tFlick.m_vAngles.emplace_front(pEntity->GetEyeAngles(), pEntity->m_flSimulationTime(), I::GlobalVars->tickcount, false, bFired, false);
-	if (tFlick.m_vAngles.size() > 24)
+	if (tFlick.m_vAngles.size() > 32)
 		tFlick.m_vAngles.pop_back();
 
 	if (tFlick.m_vAngles.size() < 3)
@@ -72,6 +92,11 @@ bool CCheatDetection::IsFlicking(CTFPlayer* pEntity)
 	const auto& recAfter = tFlick.m_vAngles[0];
 	const auto& recShot = tFlick.m_vAngles[1];
 	const auto& recBefore = tFlick.m_vAngles[2];
+
+	const float flSimDelta1 = recShot.m_flSimTime - recBefore.m_flSimTime;
+	const float flSimDelta2 = recAfter.m_flSimTime - recShot.m_flSimTime;
+	if (flSimDelta1 <= 0.f || flSimDelta2 <= 0.f || flSimDelta1 > TICK_INTERVAL * 2.5f || flSimDelta2 > TICK_INTERVAL * 2.5f)
+		return false;
 
 	const Vec3 vBefore = recBefore.m_vAngle;
 	const Vec3 vShot = recShot.m_vAngle;
@@ -88,7 +113,7 @@ bool CCheatDetection::IsFlicking(CTFPlayer* pEntity)
 
 	const float flDot = vDeltaIn.x * vDeltaOut.x + vDeltaIn.y * vDeltaOut.y;
 	const float flCos = flDot / (flLenIn * flLenOut);
-	if (flCos >= -0.65f)
+	if (flCos >= -0.60f)
 		return false;
 
 	const float flFovIn = Math::CalcFov(vBefore, vShot);
@@ -103,7 +128,7 @@ bool CCheatDetection::IsFlicking(CTFPlayer* pEntity)
 	const float flMaxFov = std::max(flFovIn, flFovOut);
 	const float flRatio = flMinFov / (flMaxFov + 0.001f);
 
-	if (flRatio < 0.35f || flExcursion < 0.15f)
+	if (flRatio < 0.30f || flExcursion < 0.12f)
 		return false;
 
 	const float flMaxNoise = Vars::CheatDetection::MaxNoise.Value * (TICK_INTERVAL / 0.015f);
@@ -111,7 +136,8 @@ bool CCheatDetection::IsFlicking(CTFPlayer* pEntity)
 		return true;
 
 	const Vec3 vShootPos = pEntity->m_vecOrigin() + pEntity->GetViewOffset();
-	bool bAimedAtEnemy = false;
+	bool bAimedAtTarget = false;
+
 	for (auto pTargetEntity : H::Entities.GetGroup(EntityEnum::PlayerAll))
 	{
 		auto pTarget = pTargetEntity->As<CTFPlayer>();
@@ -121,44 +147,71 @@ bool CCheatDetection::IsFlicking(CTFPlayer* pEntity)
 		if (pTarget->m_iTeamNum() == pEntity->m_iTeamNum() && !SDK::FriendlyFire())
 			continue;
 
-		const Vec3 vTargetCenter = pTarget->GetCenter();
-		const Vec3 vAngleToCenter = Math::CalcAngle(vShootPos, vTargetCenter);
-		const float flTargetCenterFov = Math::CalcFov(vShot, vAngleToCenter);
+		float flTargetMinFov = 999.f;
+		float flBeforeMinFov = 999.f;
+		float flAfterMinFov = 999.f;
+
+		matrix3x4* aBones = F::Backtrack.GetBones(pTarget);
+		if (aBones)
+		{
+			const int nHitboxes = std::min(pTarget->GetNumOfHitboxes(), 18);
+			for (int n = 0; n < nHitboxes; n++)
+			{
+				const Vec3 vHitbox = pTarget->GetHitboxCenter(aBones, n);
+				const Vec3 vAngleToHitbox = Math::CalcAngle(vShootPos, vHitbox);
+				const float flFov = Math::CalcFov(vShot, vAngleToHitbox);
+				if (flFov < flTargetMinFov)
+				{
+					flTargetMinFov = flFov;
+					flBeforeMinFov = Math::CalcFov(vBefore, vAngleToHitbox);
+					flAfterMinFov = Math::CalcFov(vAfter, vAngleToHitbox);
+				}
+			}
+		}
 
 		const Vec3 vTargetEye = pTarget->GetEyePosition();
 		const Vec3 vAngleToEye = Math::CalcAngle(vShootPos, vTargetEye);
-		const float flTargetEyeFov = Math::CalcFov(vShot, vAngleToEye);
-
-		const float flTargetMinFov = std::min(flTargetCenterFov, flTargetEyeFov);
-		if (flTargetMinFov <= 4.5f)
+		const float flEyeFov = Math::CalcFov(vShot, vAngleToEye);
+		if (flEyeFov < flTargetMinFov)
 		{
-			const float flBeforeCenterFov = Math::CalcFov(vBefore, vAngleToCenter);
-			const float flBeforeEyeFov = Math::CalcFov(vBefore, vAngleToEye);
-			const float flBeforeFov = std::min(flBeforeCenterFov, flBeforeEyeFov);
+			flTargetMinFov = flEyeFov;
+			flBeforeMinFov = Math::CalcFov(vBefore, vAngleToEye);
+			flAfterMinFov = Math::CalcFov(vAfter, vAngleToEye);
+		}
 
-			const float flAfterCenterFov = Math::CalcFov(vAfter, vAngleToCenter);
-			const float flAfterEyeFov = Math::CalcFov(vAfter, vAngleToEye);
-			const float flAfterFov = std::min(flAfterCenterFov, flAfterEyeFov);
+		const Vec3 vTargetCenter = pTarget->GetCenter();
+		const Vec3 vAngleToCenter = Math::CalcAngle(vShootPos, vTargetCenter);
+		const float flCenterFov = Math::CalcFov(vShot, vAngleToCenter);
+		if (flCenterFov < flTargetMinFov)
+		{
+			flTargetMinFov = flCenterFov;
+			flBeforeMinFov = Math::CalcFov(vBefore, vAngleToCenter);
+			flAfterMinFov = Math::CalcFov(vAfter, vAngleToCenter);
+		}
 
-			if (flTargetMinFov < flBeforeFov && flTargetMinFov < flAfterFov)
-			{
-				bAimedAtEnemy = true;
-				break;
-			}
+		const float flDistance = vShootPos.DistTo(vTargetCenter);
+		const float flMaxHitboxAngle = std::clamp(Rad2Deg(atan2f(28.f, std::max(flDistance, 32.f))), 1.5f, 6.0f);
+
+		if (flTargetMinFov <= flMaxHitboxAngle && flTargetMinFov < flBeforeMinFov && flTargetMinFov < flAfterMinFov)
+		{
+			bAimedAtTarget = true;
+			break;
 		}
 	}
 
 	const bool bAction = recShot.m_bFired || recShot.m_bAttacking || recShot.m_bDamage;
-	if (bAimedAtEnemy)
+	if (bAimedAtTarget)
 	{
 		if (bAction)
 			return true;
 
-		if (flExcursion >= 0.35f && flFovBase <= flMinFov * 0.5f)
+		if (flExcursion >= 0.25f && flFovBase <= flMinFov * 0.45f)
 			return true;
 	}
-	else if (bAction && flExcursion >= 0.5f && flFovBase <= flMinFov * 0.4f)
+	else if (bAction && flExcursion >= 0.40f && flFovBase <= flMinFov * 0.35f)
+	{
 		return true;
+	}
 
 	return false;
 }
@@ -403,7 +456,7 @@ void CCheatDetection::ReportDamage(IGameEvent* pEvent)
 		const size_t nAngles = tFlick.m_vAngles.size();
 		if (nAngles >= 3)
 		{
-			const size_t nMaxCheck = std::min(nAngles - 1, size_t(10));
+			const size_t nMaxCheck = std::min(nAngles - 1, size_t(16));
 			for (size_t i = 1; i < nMaxCheck; i++)
 			{
 				auto& recAfter = tFlick.m_vAngles[i - 1];
@@ -423,7 +476,7 @@ void CCheatDetection::ReportDamage(IGameEvent* pEvent)
 
 				const float flDot = vDeltaIn.x * vDeltaOut.x + vDeltaIn.y * vDeltaOut.y;
 				const float flCos = flDot / (flLenIn * flLenOut);
-				if (flCos >= -0.65f)
+				if (flCos >= -0.60f)
 					continue;
 
 				const Vec3 vDeltaBase = vAfter.DeltaAngle(vBefore);
@@ -431,31 +484,65 @@ void CCheatDetection::ReportDamage(IGameEvent* pEvent)
 				Math::ClampAngles(vMid);
 				const float flExcursion = Math::CalcFov(vShot, vMid);
 
-				if (flExcursion >= 0.15f)
+				if (flExcursion >= 0.12f)
 				{
 					if (pVictim)
 					{
 						const Vec3 vShootPos = pAttacker->m_vecOrigin() + pAttacker->GetViewOffset();
-						const float flFovToVictimCenter = Math::CalcFov(vShot, Math::CalcAngle(vShootPos, pVictim->GetCenter()));
-						const float flFovToVictimEye = Math::CalcFov(vShot, Math::CalcAngle(vShootPos, pVictim->GetEyePosition()));
-						const float flVictimFov = std::min(flFovToVictimCenter, flFovToVictimEye);
+						float flVictimMinFov = 999.f;
+						float flBeforeMinFov = 999.f;
 
-						const float flBeforeFov = std::min(
-							Math::CalcFov(vBefore, Math::CalcAngle(vShootPos, pVictim->GetCenter())),
-							Math::CalcFov(vBefore, Math::CalcAngle(vShootPos, pVictim->GetEyePosition()))
-						);
+						matrix3x4* aVictimBones = F::Backtrack.GetBones(pVictim);
+						if (aVictimBones)
+						{
+							const int nHitboxes = std::min(pVictim->GetNumOfHitboxes(), 18);
+							for (int n = 0; n < nHitboxes; n++)
+							{
+								const Vec3 vHitbox = pVictim->GetHitboxCenter(aVictimBones, n);
+								const Vec3 vAngleToHitbox = Math::CalcAngle(vShootPos, vHitbox);
+								const float flFov = Math::CalcFov(vShot, vAngleToHitbox);
+								if (flFov < flVictimMinFov)
+								{
+									flVictimMinFov = flFov;
+									flBeforeMinFov = Math::CalcFov(vBefore, vAngleToHitbox);
+								}
+							}
+						}
 
-						if (flVictimFov <= 6.0f && flVictimFov < flBeforeFov)
+						const Vec3 vVictimEye = pVictim->GetEyePosition();
+						const Vec3 vAngleToEye = Math::CalcAngle(vShootPos, vVictimEye);
+						const float flEyeFov = Math::CalcFov(vShot, vAngleToEye);
+						if (flEyeFov < flVictimMinFov)
+						{
+							flVictimMinFov = flEyeFov;
+							flBeforeMinFov = Math::CalcFov(vBefore, vAngleToEye);
+						}
+
+						const Vec3 vVictimCenter = pVictim->GetCenter();
+						const Vec3 vAngleToCenter = Math::CalcAngle(vShootPos, vVictimCenter);
+						const float flCenterFov = Math::CalcFov(vShot, vAngleToCenter);
+						if (flCenterFov < flVictimMinFov)
+						{
+							flVictimMinFov = flCenterFov;
+							flBeforeMinFov = Math::CalcFov(vBefore, vAngleToCenter);
+						}
+
+						const float flDistance = vShootPos.DistTo(vVictimCenter);
+						const float flMaxHitboxAngle = std::clamp(Rad2Deg(atan2f(32.f, std::max(flDistance, 32.f))), 2.0f, 7.0f);
+
+						if (flVictimMinFov <= flMaxHitboxAngle && flVictimMinFov < flBeforeMinFov)
 						{
 							recShot.m_bDamage = true;
 							tFlick.m_bInfract = true;
 							break;
 						}
 					}
-
-					recShot.m_bDamage = true;
-					tFlick.m_bInfract = true;
-					break;
+					else if (flExcursion >= 0.35f)
+					{
+						recShot.m_bDamage = true;
+						tFlick.m_bInfract = true;
+						break;
+					}
 				}
 			}
 		}

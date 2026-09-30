@@ -35,6 +35,9 @@ struct PlayerInfo
 	{
 		std::deque<AngleHistory_t> m_vAngles = {};
 		float m_flLastFireTime = 0.f;
+		int m_iLastClip = -1;
+		int m_iLastShots = -1;
+		Vec3 m_vLastOrigin = {};
 		bool m_bInfract = false;
 	} m_AimFlicking;
 

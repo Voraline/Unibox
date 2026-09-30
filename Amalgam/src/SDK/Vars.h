@@ -1378,6 +1378,7 @@ I dont think this is a good idea to disable simulations completely:
 		CVarEnum(Methods, "Detection methods", 0b000000, DROPDOWN_MULTI, nullptr,
 			VA_LIST("Invalid pitch", "Packet choking", "Aim flicking", "Duck Speed", "Lagcomp abuse", "Critbucket"),
 			InvalidPitch = 1 << 0, PacketChoking = 1 << 1, AimFlicking = 1 << 2, DuckSpeed = 1 << 3, LagCompAbuse = 1 << 4, CritManipulation = 1 << 5);
+		CVar(DetectLocal, "Detect local player", false);
 		CVar(DetectionsRequired, "Detections required", 10, SLIDER_MIN, 0, 50);
 		CVar(MinChoking, "Min choking", 20, SLIDER_MIN, 4, 22);
 		CVar(MinFlick, "Min flick angle", 20.f, SLIDER_PRECISION, 10.f, 30.f); // min flick size to suspect

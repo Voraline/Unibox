@@ -2608,6 +2608,7 @@ void CMenu::MenuAnticheat(int iTab)
 		if (Section("Cheater Detection"))
 		{
 			FDropdown(Vars::CheatDetection::Methods);
+			FToggle(Vars::CheatDetection::DetectLocal);
 			PushTransparent(!Vars::CheatDetection::DetectionsRequired.Value);
 			{
 				FSlider(Vars::CheatDetection::DetectionsRequired);

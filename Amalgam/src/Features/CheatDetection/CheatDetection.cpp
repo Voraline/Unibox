@@ -96,7 +96,8 @@ bool CCheatDetection::IsFlicking(CTFPlayer* pEntity)
 		}
 	}
 
-	tFlick.m_vAngles.emplace_front(pEntity->GetEyeAngles(), pEntity->m_flSimulationTime(), I::GlobalVars->tickcount, false, bFired, false);
+	const Vec3 vCurrentAngle = (pEntity->entindex() == I::EngineClient->GetLocalPlayer() && G::CurrentUserCmd) ? G::CurrentUserCmd->viewangles : pEntity->GetEyeAngles();
+	tFlick.m_vAngles.emplace_front(vCurrentAngle, pEntity->m_flSimulationTime(), I::GlobalVars->tickcount, false, bFired, false);
 	if (tFlick.m_vAngles.size() > 32)
 		tFlick.m_vAngles.pop_back();
 
@@ -400,13 +401,19 @@ void CCheatDetection::Run()
 		auto pPlayer = pEntity->As<CTFPlayer>();
 		int iIndex = pPlayer->entindex();
 		float flDeltaTime = H::Entities.GetDeltaTime(iIndex);
-		if (!flDeltaTime)
+		if (iIndex == I::EngineClient->GetLocalPlayer())
+		{
+			if (!Vars::CheatDetection::DetectLocal.Value)
+				continue;
+			flDeltaTime = TICK_INTERVAL;
+		}
+		else if (!flDeltaTime)
 			continue;
 
 		const int iDeltaTicks = TIME_TO_TICKS(flDeltaTime);
 
-		if (iIndex == I::EngineClient->GetLocalPlayer() || !pPlayer->IsAlive() || pPlayer->IsAGhost()
-			|| pResource->IsFakePlayer(iIndex) || F::PlayerUtils.HasTag(iIndex, F::PlayerUtils.TagToIndex(CHEATER_TAG)))
+		if (!pPlayer->IsAlive() || pPlayer->IsAGhost()
+			|| pResource->IsFakePlayer(iIndex) || (!Vars::CheatDetection::DetectLocal.Value && F::PlayerUtils.HasTag(iIndex, F::PlayerUtils.TagToIndex(CHEATER_TAG))))
 		{
 			mData[pPlayer].m_PacketChoking = {};
 			mData[pPlayer].m_AimFlicking = {};
@@ -466,7 +473,7 @@ void CCheatDetection::ReportDamage(IGameEvent* pEvent)
 		return;
 
 	const int iAttacker = I::EngineClient->GetPlayerForUserID(pEvent->GetInt("attacker"));
-	if (iAttacker == I::EngineClient->GetLocalPlayer())
+	if (!Vars::CheatDetection::DetectLocal.Value && iAttacker == I::EngineClient->GetLocalPlayer())
 		return;
 
 	auto pAttacker = I::ClientEntityList->GetClientEntity(iAttacker)->As<CTFPlayer>();

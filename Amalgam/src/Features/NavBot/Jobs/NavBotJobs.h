@@ -30,7 +30,8 @@ struct SupplyData_t
 	float m_flRespawnTime = 0.f;
 	Vector m_vOrigin = {};
 
-	SupplyData_t* m_pOriginalSelfPtr = nullptr;
+	int m_iCacheIndex = -1;
+	bool m_bHealthCache = false;
 };
 
 Enum(EngineerTaskStage, None,
@@ -158,6 +159,8 @@ private:
 	CNavArea* m_pEscapeTargetArea = nullptr;
 	Timer m_tEscapeRefresh{};
 	CNavArea* m_pProjectileTargetArea = nullptr;
+public:
+	std::wstring m_sDangerStatus = {};
 public:
 	bool EscapeDanger(CTFPlayer* pLocal);
 	bool EscapeProjectiles(CTFPlayer* pLocal);

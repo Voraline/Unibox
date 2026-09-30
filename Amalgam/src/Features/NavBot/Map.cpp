@@ -12,6 +12,20 @@
 
 static std::atomic<float> s_flNavTickInterval{ 1.0f / 66.0f };
 
+static float GetPathLowerBound(const CNavArea& tFrom, const CNavArea& tTo)
+{
+	const float flDx = tFrom.m_vSeCorner.x < tTo.m_vNwCorner.x
+		? tTo.m_vNwCorner.x - tFrom.m_vSeCorner.x
+		: tTo.m_vSeCorner.x < tFrom.m_vNwCorner.x ? tFrom.m_vNwCorner.x - tTo.m_vSeCorner.x : 0.f;
+	const float flDy = tFrom.m_vSeCorner.y < tTo.m_vNwCorner.y
+		? tTo.m_vNwCorner.y - tFrom.m_vSeCorner.y
+		: tTo.m_vSeCorner.y < tFrom.m_vNwCorner.y ? tFrom.m_vNwCorner.y - tTo.m_vSeCorner.y : 0.f;
+	const float flDz = tFrom.m_flMaxZ < tTo.m_flMinZ
+		? tTo.m_flMinZ - tFrom.m_flMaxZ
+		: tTo.m_flMaxZ < tFrom.m_flMinZ ? tFrom.m_flMinZ - tTo.m_flMaxZ : 0.f;
+	return std::sqrt(flDx * flDx + flDy * flDy) + flDz * 1.15f;
+}
+
 static float GetAreaVerticalOutside(const CNavArea& tArea, const Vector& vPos)
 {
 	const float flBelow = std::max(tArea.m_flMinZ - vPos.z, 0.0f);
@@ -122,7 +136,7 @@ int CMap::Solve(CNavArea* pStart, CNavArea* pEnd, const SolveContext& tCtx, std:
 
 	PathNode_t& tStart = m_vPathNodes[uStartIdx];
 	tStart.m_g = 0.f;
-	tStart.m_f = pStart->m_vCenter.DistTo(pEnd->m_vCenter);
+	tStart.m_f = GetPathLowerBound(*pStart, *pEnd);
 	tStart.m_pParent = nullptr;
 	tStart.m_iQueryId = m_iQueryId;
 
@@ -181,13 +195,76 @@ int CMap::Solve(CNavArea* pStart, CNavArea* pEnd, const SolveContext& tCtx, std:
 			{
 				tNext.m_pParent = pCurrentArea;
 				tNext.m_g = flTentativeG;
-				tNext.m_f = flTentativeG + pNextArea->m_vCenter.DistTo(pEnd->m_vCenter);
+				tNext.m_f = flTentativeG + GetPathLowerBound(*pNextArea, *pEnd);
 				openSet.push({ tNext.m_f, uNextIdx });
 			}
 		}
 	}
 
 	return 1;
+}
+
+void CMap::SolveCostField(CNavArea* pStart, const SolveContext& tCtx, std::vector<float>& vOutCost, float flMaxCost, const std::vector<CNavArea*>* pTargets)
+{
+	constexpr float flUnreached = std::numeric_limits<float>::max();
+	vOutCost.assign(m_navfile.m_vAreas.size(), flUnreached);
+	if (!IsAreaValid(pStart))
+		return;
+
+	m_bSkipSpawn = !(pStart->m_iTFAttributeFlags & (TF_NAV_SPAWN_ROOM_RED | TF_NAV_SPAWN_ROOM_BLUE));
+
+	std::vector<size_t> vTargets;
+	if (pTargets)
+	{
+		vTargets.reserve(pTargets->size());
+		for (CNavArea* pTarget : *pTargets)
+			if (IsAreaValid(pTarget))
+				vTargets.push_back(GetAreaIndex(pTarget));
+		std::sort(vTargets.begin(), vTargets.end());
+		vTargets.erase(std::unique(vTargets.begin(), vTargets.end()), vTargets.end());
+		if (vTargets.empty())
+			return;
+	}
+	size_t nTargetsLeft = vTargets.size();
+
+	using NodePair = std::pair<float, size_t>;
+	std::priority_queue<NodePair, std::vector<NodePair>, std::greater<NodePair>> qOpen;
+	const size_t uStartIdx = GetAreaIndex(pStart);
+	vOutCost[uStartIdx] = 0.f;
+	qOpen.push({ 0.f, uStartIdx });
+
+	std::vector<AdjacentEntry> vNeighbors;
+	vNeighbors.reserve(8);
+
+	while (!qOpen.empty())
+	{
+		const auto [flCost, uIdx] = qOpen.top();
+		qOpen.pop();
+		if (flCost > vOutCost[uIdx])
+			continue;
+
+		if (tCtx.m_pCancel && tCtx.m_pCancel->load(std::memory_order_relaxed))
+			return;
+
+		if (pTargets && std::binary_search(vTargets.begin(), vTargets.end(), uIdx) && --nTargetsLeft == 0)
+			return;
+
+		vNeighbors.clear();
+		GetAdjacent(&m_navfile.m_vAreas[uIdx], tCtx, vNeighbors);
+		for (const auto& tEdge : vNeighbors)
+		{
+			const float flNext = flCost + tEdge.m_flCost;
+			if (flNext > flMaxCost)
+				continue;
+
+			const size_t uNextIdx = GetAreaIndex(tEdge.m_pArea);
+			if (flNext < vOutCost[uNextIdx])
+			{
+				vOutCost[uNextIdx] = flNext;
+				qOpen.push({ flNext, uNextIdx });
+			}
+		}
+	}
 }
 
 SolveContext CMap::BuildSolveContext()
@@ -199,6 +276,18 @@ SolveContext CMap::BuildSolveContext()
 	s_flNavTickInterval.store(I::GlobalVars ? I::GlobalVars->interval_per_tick : (1.0f / 66.0f), std::memory_order_relaxed);
 	tCtx.m_iVischeckCacheSeconds = std::min(Vars::Misc::Movement::NavEngine::VischeckCacheTime.Value, 45);
 	tCtx.m_bIgnoreTraces = F::NavEngine.m_bIgnoreTraces;
+	switch (Vars::Misc::Movement::NavBot::Personality.Value)
+	{
+	case Vars::Misc::Movement::NavBot::PersonalityEnum::Yolo:
+		tCtx.m_flHazardScale = 0.35f;
+		break;
+	case Vars::Misc::Movement::NavBot::PersonalityEnum::Cautious:
+		tCtx.m_flHazardScale = 2.f;
+		break;
+	default:
+		tCtx.m_flHazardScale = 1.f;
+		break;
+	}
 	if (pLocal)
 	{
 		auto pWeaponEntity = pLocal->m_hActiveWeapon().Get();
@@ -220,7 +309,6 @@ int CMap::SolveCrumbs(const Vector& vStart, CNavArea* pStartArea, const Vector& 
 	const int iResult = Solve(pStartArea, pEndArea, tCtx, vAreas, &flAreaCost);
 	if ((iResult != 0 && iResult != 3) || vAreas.empty()) return iResult == 3 ? 3 : 1;
 	if (pflCost) *pflCost = flAreaCost;
-	constexpr float flCrumbSpacing = 150.0f;
 
 	auto AppendCrumb = [&vOutPath](CachedPathCrumb_t tCrumb)
 		{
@@ -244,7 +332,13 @@ int CMap::SolveCrumbs(const Vector& vStart, CNavArea* pStartArea, const Vector& 
 			const Vector vSegmentStart = GetSafePointOnArea(pArea, vFrom);
 			const Vector vSegmentEnd = pDrop ? vTo : GetSafePointOnArea(pArea, vTo);
 			const Vector vDelta = vSegmentEnd - vSegmentStart;
-			const int iSteps = std::max(static_cast<int>(std::ceil(vDelta.Length() / flCrumbSpacing)), 1);
+			const float flSegmentLen = vDelta.Length();
+
+			const Vector vExtent = pArea->m_vSeCorner - pArea->m_vNwCorner;
+			const float flAreaWidth = std::min(std::fabs(vExtent.x), std::fabs(vExtent.y));
+			const float flSpacing = std::clamp(flAreaWidth, 32.f, 200.f);
+
+			const int iSteps = std::max(static_cast<int>(std::ceil(flSegmentLen / flSpacing)), 1);
 			Vector vApproachDir = vDelta;
 			vApproachDir.z = 0.f;
 			if (vApproachDir.Normalize() <= 0.01f)
@@ -331,15 +425,8 @@ void CMap::GetAdjacent(CNavArea* pCurrentArea, const SolveContext& tCtx, std::ve
 		if (!std::isfinite(LookupHazard(pNextArea)))
 			continue;
 
-		const auto tAreaBlockKey = std::pair<CNavArea*, CNavArea*>(pNextArea, pNextArea);
-		if (auto itBlocked = m_mVischeckCache.find(tAreaBlockKey); itBlocked != m_mVischeckCache.end())
-		{
-			const auto& tEnt = itBlocked->second;
-			if (tEnt.m_eVischeckState == VischeckStateEnum::NotVisible
-				&& (tEnt.m_iExpireTick == 0 || tEnt.m_iExpireTick > iNow)
-				&& tEnt.m_bStuckBlacklist)
-				continue;
-		}
+		if (GetAreaBlock(pNextArea, iNow) == AreaBlock::Stuck)
+			continue;
 
 		const auto tKey = std::pair<CNavArea*, CNavArea*>(pCurrentArea, pNextArea);
 		CachedConnection_t& tEntry = m_mVischeckCache[tKey];
@@ -414,7 +501,7 @@ void CMap::GetAdjacent(CNavArea* pCurrentArea, const SolveContext& tCtx, std::ve
 		{
 			const float flHazardCost = LookupHazard(pNextArea);
 			if (std::isfinite(flHazardCost))
-				flFinalCost += std::clamp(flHazardCost * 0.28f, 0.f, 650.f);
+				flFinalCost += std::clamp(flHazardCost * 0.75f * tCtx.m_flHazardScale, 0.f, 650.f * tCtx.m_flHazardScale);
 			else
 				continue;
 
@@ -514,6 +601,19 @@ DropdownHint_t CMap::HandleDropdown(const NavPoints_t& tPoints)
 	return tHint;
 }
 
+CMap::AreaBlock CMap::GetAreaBlock(CNavArea* pArea, int iTick) const
+{
+	const auto it = m_mVischeckCache.find(std::pair<CNavArea*, CNavArea*>(pArea, pArea));
+	if (it == m_mVischeckCache.end())
+		return AreaBlock::None;
+
+	const auto& tEntry = it->second;
+	if (tEntry.m_bPassable || (tEntry.m_iExpireTick != 0 && tEntry.m_iExpireTick <= iTick))
+		return AreaBlock::None;
+
+	return tEntry.m_bStuckBlacklist ? AreaBlock::Stuck : AreaBlock::Soft;
+}
+
 bool CMap::HasDirectConnection(CNavArea* pFrom, CNavArea* pTo) const
 {
 	if (!pFrom || !pTo) return false;
@@ -610,7 +710,7 @@ float CMap::EvaluateConnectionCost(CNavArea* pCurrentArea, CNavArea* pNextArea, 
 			flCost += 320.f;
 	}
 
-	return std::max(flCost, 1.f);
+	return std::max({ flCost, GetPathLowerBound(*pCurrentArea, *pNextArea), 1.f });
 }
 
 void CMap::CollectAreasAround(const Vector& vOrigin, float flRadius, std::vector<CNavArea*>& vOutAreas)
@@ -655,7 +755,6 @@ void CMap::CollectAreasAround(const Vector& vOrigin, float flRadius, std::vector
 
 CNavArea* CMap::FindClosestNavArea(const Vector& vPos, bool bLocalOrigin)
 {
-	std::lock_guard lock(m_mutex);
 	if (m_navfile.m_vAreas.empty())
 		return nullptr;
 
@@ -702,17 +801,21 @@ CNavArea* CMap::FindClosestNavArea(const Vector& vPos, bool bLocalOrigin)
 	if (!bLocalOrigin || !pBest || CanFallToNavArea(vPos, *pBest))
 		return pBest;
 
+	constexpr size_t kMaxFallbackTraces = 64;
+	std::vector<std::pair<float, CNavArea*>> vScored;
+	vScored.reserve(m_navfile.m_vAreas.size());
 	for (auto& tArea : m_navfile.m_vAreas)
+		vScored.emplace_back(GetNearestAreaScore(tArea, vPos, true), &tArea);
+
+	const size_t nTraces = std::min(kMaxFallbackTraces, vScored.size());
+	std::partial_sort(vScored.begin(), vScored.begin() + nTraces, vScored.end());
+	for (size_t i = 0; i < nTraces; ++i)
 	{
-		const float flScore = GetNearestAreaScore(tArea, vPos, true);
-		if (flScore < flBestReachableScore && CanFallToNavArea(vPos, tArea))
-		{
-			flBestReachableScore = flScore;
-			pBestReachable = &tArea;
-		}
+		if (CanFallToNavArea(vPos, *vScored[i].second))
+			return vScored[i].second;
 	}
 
-	return pBestReachable;
+	return nullptr;
 }
 
 CNavFile::CNavFile(const char* szLevelname)
@@ -970,6 +1073,8 @@ void CNavFile::BuildSpatialIndex()
 	m_vGrid.clear();
 	m_nGridW = 0;
 	m_nGridH = 0;
+	m_vQueryStamp.assign(m_vAreas.size(), 0u);
+	m_uQueryStamp = 0;
 	if (m_vAreas.empty())
 		return;
 
@@ -1029,15 +1134,27 @@ void CNavFile::QueryOverlapping(const Vector& vPos, float flRadius, std::vector<
 	const int iX1 = Cell(flX1, m_flGridMinX, m_nGridW);
 	const int iY1 = Cell(flY1, m_flGridMinY, m_nGridH);
 
-	std::unordered_map<CNavArea*, char> mSeen;
+	if (m_vQueryStamp.size() != m_vAreas.size())
+		m_vQueryStamp.assign(m_vAreas.size(), 0u);
+	if (++m_uQueryStamp == 0)
+	{
+		std::fill(m_vQueryStamp.begin(), m_vQueryStamp.end(), 0u);
+		m_uQueryStamp = 1;
+	}
+
+	const CNavArea* pFirst = m_vAreas.data();
 	for (int iY = iY0; iY <= iY1; ++iY)
 	{
 		for (int iX = iX0; iX <= iX1; ++iX)
 		{
 			for (CNavArea* pArea : m_vGrid[static_cast<size_t>(iY) * static_cast<size_t>(m_nGridW) + static_cast<size_t>(iX)])
 			{
-				if (mSeen.emplace(pArea, 1).second)
+				uint32_t& uStamp = m_vQueryStamp[static_cast<size_t>(pArea - pFirst)];
+				if (uStamp != m_uQueryStamp)
+				{
+					uStamp = m_uQueryStamp;
 					vOut.push_back(pArea);
+				}
 			}
 		}
 	}

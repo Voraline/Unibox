@@ -30,6 +30,26 @@ static bool CanUseDangerArea(const Hazard_t* pHazard, bool bHasTarget, bool bLow
 	return true;
 }
 
+static bool IsEscapePathSafe(CNavArea* pFrom, CNavArea* pTo, bool bHasTarget, bool bLowHealth)
+{
+	if (!pFrom || !pTo)
+		return false;
+
+	std::vector<CNavArea*> vAreas;
+	if (!F::NavEngine.GetPathAreas(pFrom, pTo, vAreas) || vAreas.empty())
+		return false;
+
+	for (size_t i = 1; i < vAreas.size(); i++)
+	{
+		const Hazard_t* pHazard = F::Hazards.GetHazard(vAreas[i]);
+		if (!pHazard)
+			continue;
+		if (!CanUseDangerArea(pHazard, bHasTarget, bLowHealth) || !std::isfinite(F::Hazards.GetCost(vAreas[i])))
+			return false;
+	}
+	return true;
+}
+
 bool CNavBotDanger::EscapeDanger(CTFPlayer* pLocal)
 {
 	if (!(Vars::Misc::Movement::NavBot::Preferences.Value & Vars::Misc::Movement::NavBot::PreferencesEnum::EscapeDanger))
@@ -111,6 +131,7 @@ bool CNavBotDanger::EscapeDanger(CTFPlayer* pLocal)
 
 			vReferencePosition = pLocal->GetAbsOrigin();
 		}
+		const bool bLowHealth = pLocal->m_iHealth() < pLocal->GetMaxHealth() * 0.5f;
 
 		std::vector<NavAreaScore_t> vSafeAreas;
 		std::vector<CNavArea*> vAreaPointers;
@@ -119,8 +140,7 @@ bool CNavBotDanger::EscapeDanger(CTFPlayer* pLocal)
 
 		for (auto& pArea : vAreaPointers)
 		{
-			if (!CanUseDangerArea(F::Hazards.GetHazard(pArea), bHasTarget,
-				pLocal->m_iHealth() < pLocal->GetMaxHealth() * 0.5f))
+			if (!CanUseDangerArea(F::Hazards.GetHazard(pArea), bHasTarget, bLowHealth))
 				continue;
 
 			float flDistToReference = pArea->m_vCenter.DistTo(vReferencePosition);
@@ -168,10 +188,14 @@ bool CNavBotDanger::EscapeDanger(CTFPlayer* pLocal)
 			if (!bIsSafe)
 				continue;
 
+			if (!IsEscapePathSafe(pLocalArea, pArea, bHasTarget, bLowHealth))
+				continue;
+
 			if (F::NavEngine.NavTo(pArea->m_vCenter, PriorityListEnum::EscapeDanger))
 			{
 				m_pEscapeTargetArea = pArea;
 				m_tEscapeRefresh.Update();
+				m_sDangerStatus = L"Retreat";
 				return true;
 			}
 		}
@@ -192,13 +216,35 @@ bool CNavBotDanger::EscapeDanger(CTFPlayer* pLocal)
 					iCalls++;
 					if (iCalls > 5)
 						break;
+					if (!IsEscapePathSafe(pLocalArea, pArea, bHasTarget, bLowHealth))
+						continue;
 					if (F::NavEngine.NavTo(pArea->m_vCenter, PriorityListEnum::EscapeDanger))
 					{
 						m_pEscapeTargetArea = pArea;
 						m_tEscapeRefresh.Update();
+						m_sDangerStatus = L"Retreat";
 						return true;
 					}
 				}
+			}
+		}
+
+		m_sDangerStatus = L"Hold";
+		std::pair<CNavArea*, int> tHidingSpot{};
+		Vector vVischeck = pLocal->GetAbsOrigin();
+		if (F::BotUtils.m_tClosestEnemy.m_pPlayer)
+		{
+			vVischeck = F::BotUtils.m_tClosestEnemy.m_vOrigin;
+			vVischeck.z += PLAYER_CROUCHED_JUMP_HEIGHT;
+		}
+		if (NavAreaUtils::FindClosestHidingSpot(pLocalArea, vVischeck, 4, tHidingSpot) && tHidingSpot.first
+			&& IsEscapePathSafe(pLocalArea, tHidingSpot.first, false, bLowHealth))
+		{
+			if (F::NavEngine.NavTo(tHidingSpot.first->m_vCenter, PriorityListEnum::EscapeDanger))
+			{
+				m_pEscapeTargetArea = tHidingSpot.first;
+				m_tEscapeRefresh.Update();
+				return true;
 			}
 		}
 	}
@@ -206,6 +252,7 @@ bool CNavBotDanger::EscapeDanger(CTFPlayer* pLocal)
 	else if (F::NavEngine.m_eCurrentPriority == PriorityListEnum::EscapeDanger)
 	{
 		m_pEscapeTargetArea = nullptr;
+		m_sDangerStatus = L"";
 		F::NavEngine.CancelPath();
 	}
 
@@ -377,4 +424,5 @@ void CNavBotDanger::ResetSpawn()
 	m_pSpawnExitArea = nullptr;
 	m_pEscapeTargetArea = nullptr;
 	m_pProjectileTargetArea = nullptr;
+	m_sDangerStatus.clear();
 }

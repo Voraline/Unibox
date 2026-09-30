@@ -278,7 +278,14 @@ bool CNavBotStayNear::StayNearTarget(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, 
 	}
 
 	Vector vSide(-vForward.y, vForward.x, 0.f);
-	const float flSideSign = (iEntIndex + pLocal->entindex()) % 2 ? 1.f : -1.f;
+	static int s_iLastFlankTarget = -1;
+	static float s_flFlankSide = 1.f;
+	if (iEntIndex != s_iLastFlankTarget)
+	{
+		s_iLastFlankTarget = iEntIndex;
+		s_flFlankSide = SDK::RandomFloat(0.f, 1.f) < 0.5f ? -1.f : 1.f;
+	}
+	const float flSideSign = s_flFlankSide;
 	const Vector vAnchor = vPredictedOrigin + vForward * tProfile.m_flAheadDistance + vSide * (tProfile.m_flSideDistance * flSideSign);
 
 	auto pNavFile = F::NavEngine.GetNavFile();
@@ -328,6 +335,13 @@ bool CNavBotStayNear::StayNearTarget(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, 
 		});
 
 	const size_t nTraceCandidates = std::min<size_t>(vCandidates.size(), 28);
+	std::vector<CNavArea*> vCostTargets;
+	vCostTargets.reserve(nTraceCandidates);
+	for (size_t i = 0; i < nTraceCandidates; i++)
+		vCostTargets.push_back(vCandidates[i].m_pArea);
+	std::vector<float> vPathCost;
+	F::NavEngine.GetPathCostField(pLocalArea, vPathCost, FLT_MAX, &vCostTargets);
+
 	for (size_t i = 0; i < nTraceCandidates; i++)
 	{
 		StalkCandidate_t& tCandidate = vCandidates[i];
@@ -336,8 +350,8 @@ bool CNavBotStayNear::StayNearTarget(CTFPlayer* pLocal, CTFWeaponBase* pWeapon, 
 		tCandidate.m_flScore += bVisible == tProfile.m_bPreferSightline ? -160.f : 180.f;
 		tCandidate.m_flScore += GetHidingSpotCoverScore(tCandidate.m_pArea, vTargetOrigin, tProfile.m_bPreferSightline) * tProfile.m_flCoverWeight;
 
-		const float flPathCost = F::NavEngine.GetPathCost(pLocalArea, tCandidate.m_pArea);
-		if (!std::isfinite(flPathCost))
+		const float flPathCost = F::NavEngine.GetFieldCost(vPathCost, tCandidate.m_pArea);
+		if (!std::isfinite(flPathCost) || flPathCost >= FLT_MAX)
 			tCandidate.m_flScore += 100000.f;
 		else
 			tCandidate.m_flScore += std::clamp(flPathCost, 0.f, 6000.f) * 0.05f;

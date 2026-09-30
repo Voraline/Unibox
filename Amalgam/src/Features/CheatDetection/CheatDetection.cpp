@@ -43,6 +43,9 @@ bool CCheatDetection::IsFlicking(CTFPlayer* pEntity)
 		return false;
 	}
 
+	if (pEntity->IsDormant())
+		return false;
+
 	auto& tFlick = mData[pEntity].m_AimFlicking;
 	if (tFlick.m_bInfract)
 	{
@@ -63,23 +66,34 @@ bool CCheatDetection::IsFlicking(CTFPlayer* pEntity)
 	bool bFired = false;
 	if (pWeapon)
 	{
-		const float flLastFire = pWeapon->m_flLastFireTime();
-		if (flLastFire > 0.f && flLastFire != tFlick.m_flLastFireTime)
+		const int iWeaponID = pWeapon->GetWeaponID();
+		if (iWeaponID != tFlick.m_iLastWeaponID)
 		{
-			if (tFlick.m_flLastFireTime > 0.f)
-				bFired = true;
-			tFlick.m_flLastFireTime = flLastFire;
+			tFlick.m_iLastWeaponID = iWeaponID;
+			tFlick.m_flLastFireTime = pWeapon->m_flLastFireTime();
+			tFlick.m_iLastClip = pWeapon->m_iClip1();
+			tFlick.m_iLastShots = pWeapon->m_iConsecutiveShots();
 		}
+		else
+		{
+			const float flLastFire = pWeapon->m_flLastFireTime();
+			if (flLastFire > 0.f && flLastFire != tFlick.m_flLastFireTime)
+			{
+				if (tFlick.m_flLastFireTime > 0.f)
+					bFired = true;
+				tFlick.m_flLastFireTime = flLastFire;
+			}
 
-		const int iClip = pWeapon->m_iClip1();
-		if (tFlick.m_iLastClip >= 0 && iClip >= 0 && iClip < tFlick.m_iLastClip)
-			bFired = true;
-		tFlick.m_iLastClip = iClip;
+			const int iClip = pWeapon->m_iClip1();
+			if (tFlick.m_iLastClip >= 0 && iClip >= 0 && iClip < tFlick.m_iLastClip)
+				bFired = true;
+			tFlick.m_iLastClip = iClip;
 
-		const int iShots = pWeapon->m_iConsecutiveShots();
-		if (tFlick.m_iLastShots >= 0 && iShots > tFlick.m_iLastShots)
-			bFired = true;
-		tFlick.m_iLastShots = iShots;
+			const int iShots = pWeapon->m_iConsecutiveShots();
+			if (tFlick.m_iLastShots >= 0 && iShots > tFlick.m_iLastShots)
+				bFired = true;
+			tFlick.m_iLastShots = iShots;
+		}
 	}
 
 	tFlick.m_vAngles.emplace_front(pEntity->GetEyeAngles(), pEntity->m_flSimulationTime(), I::GlobalVars->tickcount, false, bFired, false);
@@ -165,6 +179,26 @@ bool CCheatDetection::IsFlicking(CTFPlayer* pEntity)
 					flTargetMinFov = flFov;
 					flBeforeMinFov = Math::CalcFov(vBefore, vAngleToHitbox);
 					flAfterMinFov = Math::CalcFov(vAfter, vAngleToHitbox);
+				}
+			}
+		}
+
+		std::vector<TickRecord*> vTargetRecords = {};
+		if (F::Backtrack.GetRecords(pTarget, vTargetRecords))
+		{
+			for (auto pRecord : vTargetRecords)
+			{
+				if (!pRecord || pRecord->m_bInvalid)
+					continue;
+
+				const Vec3 vRecordCenter = pRecord->m_vOrigin + pTarget->GetViewOffset() * 0.5f;
+				const Vec3 vAngleToRecord = Math::CalcAngle(vShootPos, vRecordCenter);
+				const float flRecordFov = Math::CalcFov(vShot, vAngleToRecord);
+				if (flRecordFov < flTargetMinFov)
+				{
+					flTargetMinFov = flRecordFov;
+					flBeforeMinFov = Math::CalcFov(vBefore, vAngleToRecord);
+					flAfterMinFov = Math::CalcFov(vAfter, vAngleToRecord);
 				}
 			}
 		}
@@ -505,6 +539,25 @@ void CCheatDetection::ReportDamage(IGameEvent* pEvent)
 								{
 									flVictimMinFov = flFov;
 									flBeforeMinFov = Math::CalcFov(vBefore, vAngleToHitbox);
+								}
+							}
+						}
+
+						std::vector<TickRecord*> vVictimRecords = {};
+						if (F::Backtrack.GetRecords(pVictim, vVictimRecords))
+						{
+							for (auto pRecord : vVictimRecords)
+							{
+								if (!pRecord || pRecord->m_bInvalid)
+									continue;
+
+								const Vec3 vRecordCenter = pRecord->m_vOrigin + pVictim->GetViewOffset() * 0.5f;
+								const Vec3 vAngleToRecord = Math::CalcAngle(vShootPos, vRecordCenter);
+								const float flRecordFov = Math::CalcFov(vShot, vAngleToRecord);
+								if (flRecordFov < flVictimMinFov)
+								{
+									flVictimMinFov = flRecordFov;
+									flBeforeMinFov = Math::CalcFov(vBefore, vAngleToRecord);
 								}
 							}
 						}

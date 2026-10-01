@@ -4,11 +4,16 @@
 struct AngleHistory_t
 {
 	Vec3 m_vAngle = {};
+	Vec3 m_vShootPos = {};
 	float m_flSimTime = 0.f;
 	int m_iTick = 0;
 	bool m_bAttacking = false;
 	bool m_bFired = false;
 	bool m_bDamage = false;
+
+	AngleHistory_t() = default;
+	AngleHistory_t(const Vec3& vAngle, const Vec3& vShootPos, float flSimTime, int iTick, bool bAttacking, bool bFired, bool bDamage)
+		: m_vAngle(vAngle), m_vShootPos(vShootPos), m_flSimTime(flSimTime), m_iTick(iTick), m_bAttacking(bAttacking), m_bFired(bFired), m_bDamage(bDamage) {}
 };
 
 struct PlayerInfo

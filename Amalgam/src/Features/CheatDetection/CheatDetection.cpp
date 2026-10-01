@@ -96,8 +96,18 @@ bool CCheatDetection::IsFlicking(CTFPlayer* pEntity)
 		}
 	}
 
-	const Vec3 vCurrentAngle = (pEntity->entindex() == I::EngineClient->GetLocalPlayer() && G::CurrentUserCmd) ? G::CurrentUserCmd->viewangles : pEntity->GetEyeAngles();
-	tFlick.m_vAngles.emplace_front(vCurrentAngle, pEntity->m_flSimulationTime(), I::GlobalVars->tickcount, false, bFired, false);
+	const bool bLocal = pEntity->entindex() == I::EngineClient->GetLocalPlayer();
+	if (bLocal)
+	{
+		if (G::Attacking == 1 || (G::CurrentUserCmd && (G::CurrentUserCmd->buttons & IN_ATTACK)))
+			bFired = true;
+	}
+
+	const bool bAttacking = (pEntity->m_nButtons() & IN_ATTACK) || (bLocal && G::CurrentUserCmd && (G::CurrentUserCmd->buttons & IN_ATTACK));
+	const Vec3 vCurrentAngle = (bLocal && G::CurrentUserCmd) ? G::CurrentUserCmd->viewangles : pEntity->GetEyeAngles();
+	const float flCurrentSimTime = bLocal ? TICKS_TO_TIME(I::GlobalVars->tickcount) : pEntity->m_flSimulationTime();
+
+	tFlick.m_vAngles.emplace_front(vCurrentAngle, flCurrentSimTime, I::GlobalVars->tickcount, bAttacking, bFired, false);
 	if (tFlick.m_vAngles.size() > 32)
 		tFlick.m_vAngles.pop_back();
 
@@ -110,7 +120,7 @@ bool CCheatDetection::IsFlicking(CTFPlayer* pEntity)
 
 	const float flSimDelta1 = recShot.m_flSimTime - recBefore.m_flSimTime;
 	const float flSimDelta2 = recAfter.m_flSimTime - recShot.m_flSimTime;
-	if (flSimDelta1 <= 0.f || flSimDelta2 <= 0.f || flSimDelta1 > TICK_INTERVAL * 2.5f || flSimDelta2 > TICK_INTERVAL * 2.5f)
+	if (flSimDelta1 <= 0.f || flSimDelta2 <= 0.f || flSimDelta1 > 1.0f || flSimDelta2 > 1.0f)
 		return false;
 
 	const Vec3 vBefore = recBefore.m_vAngle;
@@ -128,8 +138,6 @@ bool CCheatDetection::IsFlicking(CTFPlayer* pEntity)
 
 	const float flDot = vDeltaIn.x * vDeltaOut.x + vDeltaIn.y * vDeltaOut.y;
 	const float flCos = flDot / (flLenIn * flLenOut);
-	if (flCos >= -0.60f)
-		return false;
 
 	const float flFovIn = Math::CalcFov(vBefore, vShot);
 	const float flFovOut = Math::CalcFov(vShot, vAfter);
@@ -143,11 +151,15 @@ bool CCheatDetection::IsFlicking(CTFPlayer* pEntity)
 	const float flMaxFov = std::max(flFovIn, flFovOut);
 	const float flRatio = flMinFov / (flMaxFov + 0.001f);
 
-	if (flRatio < 0.30f || flExcursion < 0.12f)
+	const bool bReversal = flCos < -0.60f && flRatio >= 0.30f;
+	if (!bReversal && flExcursion < 0.20f)
+		return false;
+
+	if (flExcursion < 0.12f)
 		return false;
 
 	const float flMaxNoise = Vars::CheatDetection::MaxNoise.Value * (TICK_INTERVAL / 0.015f);
-	if (flExcursion >= Vars::CheatDetection::MinFlick.Value && flFovBase <= flMaxNoise)
+	if (bReversal && flExcursion >= Vars::CheatDetection::MinFlick.Value && flFovBase <= flMaxNoise)
 		return true;
 
 	const Vec3 vShootPos = pEntity->m_vecOrigin() + pEntity->GetViewOffset();
@@ -240,10 +252,10 @@ bool CCheatDetection::IsFlicking(CTFPlayer* pEntity)
 		if (bAction)
 			return true;
 
-		if (flExcursion >= 0.25f && flFovBase <= flMinFov * 0.45f)
+		if (bReversal && flExcursion >= 0.25f && flFovBase <= flMinFov * 0.45f)
 			return true;
 	}
-	else if (bAction && flExcursion >= 0.40f && flFovBase <= flMinFov * 0.35f)
+	else if (bAction && bReversal && flExcursion >= 0.40f && flFovBase <= flMinFov * 0.35f)
 	{
 		return true;
 	}
@@ -413,7 +425,7 @@ void CCheatDetection::Run()
 		const int iDeltaTicks = TIME_TO_TICKS(flDeltaTime);
 
 		if (!pPlayer->IsAlive() || pPlayer->IsAGhost()
-			|| pResource->IsFakePlayer(iIndex) || (!Vars::CheatDetection::DetectLocal.Value && F::PlayerUtils.HasTag(iIndex, F::PlayerUtils.TagToIndex(CHEATER_TAG))))
+			|| pResource->IsFakePlayer(iIndex) || (iIndex != I::EngineClient->GetLocalPlayer() && F::PlayerUtils.HasTag(iIndex, F::PlayerUtils.TagToIndex(CHEATER_TAG))))
 		{
 			mData[pPlayer].m_PacketChoking = {};
 			mData[pPlayer].m_AimFlicking = {};
@@ -517,13 +529,15 @@ void CCheatDetection::ReportDamage(IGameEvent* pEvent)
 
 				const float flDot = vDeltaIn.x * vDeltaOut.x + vDeltaIn.y * vDeltaOut.y;
 				const float flCos = flDot / (flLenIn * flLenOut);
-				if (flCos >= -0.60f)
-					continue;
+				const bool bReversal = flCos < -0.60f;
 
 				const Vec3 vDeltaBase = vAfter.DeltaAngle(vBefore);
 				Vec3 vMid = vBefore + vDeltaBase * 0.5f;
 				Math::ClampAngles(vMid);
 				const float flExcursion = Math::CalcFov(vShot, vMid);
+
+				if (!bReversal && flExcursion < 0.20f)
+					continue;
 
 				if (flExcursion >= 0.12f)
 				{
@@ -597,7 +611,7 @@ void CCheatDetection::ReportDamage(IGameEvent* pEvent)
 							break;
 						}
 					}
-					else if (flExcursion >= 0.35f)
+					else if (bReversal && flExcursion >= 0.35f)
 					{
 						recShot.m_bDamage = true;
 						tFlick.m_bInfract = true;
